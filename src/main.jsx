@@ -27,9 +27,13 @@ const MONTHS = [
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
 
+const APP_PIN = "115974";
+const LOGO_SRC = "./baan-nuntika-logo.jpg";
+const OLD_RESERVE_NAME = "Nuntika Reserves";
+const RESERVE_NAME = "Nuntika Reserve";
 const START_YEAR = 2568;
 const INITIAL_DATA = {
-  buildings: ["Baan Nuntika", "Nuntika Reserves"],
+  buildings: ["Baan Nuntika", RESERVE_NAME],
   tenants: [
     {
       id: "room-202",
@@ -65,16 +69,32 @@ function buildingColor(buildings, building) {
   return BUILDING_COLORS[index % BUILDING_COLORS.length];
 }
 
+function normalizeData(data) {
+  const source = data || INITIAL_DATA;
+  const buildings = [...new Set((source.buildings || INITIAL_DATA.buildings).map((building) => (
+    building === OLD_RESERVE_NAME ? RESERVE_NAME : building
+  )))];
+  return {
+    ...source,
+    buildings,
+    tenants: (source.tenants || []).map((tenant) => ({
+      ...tenant,
+      building: tenant.building === OLD_RESERVE_NAME ? RESERVE_NAME : tenant.building,
+    })),
+    meters: source.meters || {},
+  };
+}
+
 function readLocalData() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || INITIAL_DATA;
+    return normalizeData(JSON.parse(localStorage.getItem(STORAGE_KEY)) || INITIAL_DATA);
   } catch {
-    return INITIAL_DATA;
+    return normalizeData(INITIAL_DATA);
   }
 }
 
 function writeLocalData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeData(data)));
 }
 
 function usePersistentData() {
@@ -112,11 +132,18 @@ function usePersistentData() {
       }
 
       if (row?.data) {
+        const normalizedRemoteData = normalizeData(row.data);
+        const shouldUpdateRemote = JSON.stringify(row.data) !== JSON.stringify(normalizedRemoteData);
         remoteUpdateRef.current = true;
-        writeLocalData(row.data);
-        setData(row.data);
+        writeLocalData(normalizedRemoteData);
+        setData(normalizedRemoteData);
         cloudReadyRef.current = true;
         setSyncState({ mode: "cloud", status: "saved", message: "ข้อมูลกลางจาก Supabase" });
+        if (shouldUpdateRemote) {
+          await supabase
+            .from(SUPABASE_TABLE)
+            .upsert({ id: 1, data: normalizedRemoteData, updated_at: new Date().toISOString() }, { onConflict: "id" });
+        }
         return;
       }
 
@@ -312,8 +339,8 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark"><Building2 size={21} /></span>
-          <span className="brand-copy"><strong>หอพักของฉัน</strong><small>DORM OPERATIONS</small></span>
+          <AppLogo className="brand-mark" />
+          <span className="brand-copy"><strong>Baan Nuntika</strong><small>DORM OPERATIONS</small></span>
         </div>
         <nav>
           <NavButton active={page === "tenants"} icon={Users} onClick={() => setPage("tenants")}>
@@ -382,6 +409,64 @@ function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function AuthGate({ children }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("dorm-app-unlocked") === "true");
+
+  const submitPin = (event) => {
+    event.preventDefault();
+    if (pin === APP_PIN) {
+      sessionStorage.setItem("dorm-app-unlocked", "true");
+      setUnlocked(true);
+      return;
+    }
+    setPin("");
+    setError("รหัสผ่านไม่ถูกต้อง");
+  };
+
+  if (unlocked) return children;
+
+  return (
+    <main className="pin-screen">
+      <form className="pin-card" onSubmit={submitPin}>
+        <AppLogo className="pin-logo" />
+        <p className="eyebrow">SECURE ACCESS</p>
+        <h1>Baan Nuntika</h1>
+        <p className="pin-copy">กรอกรหัส PIN 6 หลักเพื่อเข้าสู่ระบบจัดการหอพัก</p>
+        <label className="pin-field">
+          <span>PIN CODE</span>
+          <input
+            autoFocus
+            inputMode="numeric"
+            maxLength={6}
+            pattern="[0-9]*"
+            type="password"
+            value={pin}
+            onChange={(event) => {
+              setError("");
+              setPin(event.target.value.replace(/\D/g, "").slice(0, 6));
+            }}
+            aria-label="กรอกรหัส PIN 6 หลัก"
+          />
+        </label>
+        {error && <div className="pin-error">{error}</div>}
+        <button className="button primary pin-submit" type="submit" disabled={pin.length !== 6}>
+          เข้าสู่แอพ
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function AppLogo({ className = "" }) {
+  return (
+    <span className={`app-logo ${className}`}>
+      <img src={LOGO_SRC} alt="Baan Nuntika" />
+    </span>
   );
 }
 
@@ -882,4 +967,8 @@ function EmptyState({ text }) {
   return <div className="empty-state"><Building2 size={28} /><p>{text}</p></div>;
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <AuthGate>
+    <App />
+  </AuthGate>,
+);
