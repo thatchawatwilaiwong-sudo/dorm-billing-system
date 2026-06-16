@@ -32,6 +32,9 @@ const LOGO_SRC = "./baan-nuntika-logo.jpg";
 const OLD_RESERVE_NAME = "Nuntika Reserves";
 const RESERVE_NAME = "Nuntika Reserve";
 const START_YEAR = 2568;
+const METER_MAX = 9999;
+const METER_RANGE = METER_MAX + 1;
+const METER_ROLLOVER_START = 9000;
 const INITIAL_DATA = {
   buildings: ["Baan Nuntika", RESERVE_NAME],
   tenants: [
@@ -62,6 +65,7 @@ const money = (value) =>
 
 const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
+const CLOUD_SAVE_DELAY_MS = 1000;
 const BUILDING_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
 
 function buildingColor(buildings, building) {
@@ -105,6 +109,8 @@ function usePersistentData() {
     message: hasSupabaseConfig ? "กำลังเชื่อม Supabase" : "ข้อมูลอยู่บนอุปกรณ์นี้",
   }));
   const cloudReadyRef = useRef(!hasSupabaseConfig);
+  const latestDataRef = useRef(data);
+  const pendingLocalSaveRef = useRef(false);
   const remoteUpdateRef = useRef(false);
   const saveTimerRef = useRef(null);
 
@@ -174,9 +180,18 @@ function usePersistentData() {
         { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "id=eq.1" },
         (payload) => {
           if (!payload.new?.data) return;
+          const normalizedPayload = normalizeData(payload.new.data);
+          const currentDataText = JSON.stringify(latestDataRef.current);
+          const payloadText = JSON.stringify(normalizedPayload);
+          if (pendingLocalSaveRef.current || saveTimerRef.current) {
+            if (payloadText === currentDataText) {
+              setSyncState({ mode: "cloud", status: "saved", message: "บันทึกบน Supabase แล้ว" });
+            }
+            return;
+          }
           remoteUpdateRef.current = true;
-          writeLocalData(payload.new.data);
-          setData(payload.new.data);
+          writeLocalData(normalizedPayload);
+          setData(normalizedPayload);
           setSyncState({ mode: "cloud", status: "saved", message: "อัปเดตจาก Supabase แล้ว" });
         },
       )
@@ -189,6 +204,7 @@ function usePersistentData() {
   }, []);
 
   useEffect(() => {
+    latestDataRef.current = data;
     writeLocalData(data);
 
     if (!hasSupabaseConfig || !cloudReadyRef.current) return undefined;
@@ -199,6 +215,7 @@ function usePersistentData() {
     }
 
     setSyncState({ mode: "cloud", status: "saving", message: "กำลังบันทึกขึ้น Supabase" });
+    pendingLocalSaveRef.current = true;
     window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(async () => {
       const { error } = await supabase
@@ -207,14 +224,20 @@ function usePersistentData() {
 
       if (error) {
         console.error("Supabase save failed", error);
+        pendingLocalSaveRef.current = false;
         setSyncState({ mode: "cloud", status: "error", message: "บันทึก Supabase ไม่สำเร็จ" });
         return;
       }
 
+      pendingLocalSaveRef.current = false;
+      saveTimerRef.current = null;
       setSyncState({ mode: "cloud", status: "saved", message: "บันทึกบน Supabase แล้ว" });
-    }, 500);
+    }, CLOUD_SAVE_DELAY_MS);
 
-    return () => window.clearTimeout(saveTimerRef.current);
+    return () => {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    };
   }, [data]);
 
   return [data, setData, syncState];
@@ -226,6 +249,22 @@ function previousPeriod(year, month) {
 
 function meterValue(data, tenantId, utility, year, month) {
   return data.meters?.[tenantId]?.[utility]?.[`${year}-${month}`];
+}
+
+function meterUsage(current, previous) {
+  if (current === undefined || previous === undefined) return null;
+  const currentValue = Number(current);
+  const previousValue = Number(previous);
+  if (!Number.isFinite(currentValue) || !Number.isFinite(previousValue)) return null;
+  if (currentValue >= previousValue) return currentValue - previousValue;
+  if (previousValue >= METER_ROLLOVER_START && currentValue <= METER_MAX) {
+    return (METER_RANGE - previousValue) + currentValue;
+  }
+  return null;
+}
+
+function isMeterInvalid(current, previous) {
+  return current !== undefined && previous !== undefined && meterUsage(current, previous) === null;
 }
 
 function utilityCost(data, tenant, utility, year, month) {
@@ -244,10 +283,7 @@ function utilityCost(data, tenant, utility, year, month) {
   const previous = previousPeriod(year, month);
   const before = meterValue(data, tenant.id, utility, previous.year, previous.month);
   const rate = Number(tenant[`${utility}Rate`]) || 0;
-  const units =
-    current !== undefined && before !== undefined && Number(current) >= Number(before)
-      ? Number(current) - Number(before)
-      : null;
+  const units = meterUsage(current, before);
   return {
     previous: before,
     current,
@@ -628,7 +664,7 @@ function MeterPage({ data, tenants, year, month, setYear, setMonth, updateMeter 
       <div className="section-actions meter-actions">
         <div>
           <h2>บันทึกเลขมิเตอร์</h2>
-          <p>แก้ไขได้เฉพาะเดือนที่เลือก เลขมิเตอร์เท่ากับเดือนก่อนได้ แต่ห้ามต่ำกว่า</p>
+          <p>แก้ไขได้เฉพาะเดือนที่เลือก รองรับเลขมิเตอร์วนจาก 9999 กลับไป 0000</p>
         </div>
         <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
       </div>
@@ -667,7 +703,7 @@ function MeterTable({ data, tenants, year, selectedMonth, updateMeter }) {
                   const value = meterValue(data, tenant.id, utility, year, monthIndex);
                   const previous = previousPeriod(year, monthIndex);
                   const before = meterValue(data, tenant.id, utility, previous.year, previous.month);
-                  const invalid = value !== undefined && before !== undefined && Number(value) < Number(before);
+                  const invalid = isMeterInvalid(value, before);
                   const editable = selectedMonth === monthIndex && !fixed;
                   return (
                     <td className={`${selectedMonth === monthIndex ? "selected-month" : ""} ${fixed ? "fixed-cell" : ""}`} key={monthIndex}>
@@ -679,9 +715,14 @@ function MeterTable({ data, tenants, year, selectedMonth, updateMeter }) {
                             className={invalid ? "invalid" : ""}
                             type="number"
                             min="0"
+                            max={METER_MAX}
                             value={value ?? ""}
-                            onChange={(event) => updateMeter(tenant.id, utility, event.target.value)}
-                            title={invalid ? `ต้องไม่น้อยกว่า ${before}` : ""}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (nextValue !== "" && Number(nextValue) > METER_MAX) return;
+                              updateMeter(tenant.id, utility, nextValue);
+                            }}
+                            title={invalid ? `เลขต่ำกว่า ${before} ได้เฉพาะกรณีเลขก่อนหน้าใกล้ ${METER_MAX} และมิเตอร์วนกลับ` : ""}
                           />
                           {invalid && <small className="error-text">ต่ำกว่า {before}</small>}
                         </div>
