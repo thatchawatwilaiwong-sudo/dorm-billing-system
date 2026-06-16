@@ -713,12 +713,12 @@ function MeterTable({ data, tenants, year, selectedMonth, updateMeter }) {
                         <div>
                           <input
                             className={invalid ? "invalid" : ""}
-                            type="number"
-                            min="0"
-                            max={METER_MAX}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             value={value ?? ""}
                             onChange={(event) => {
-                              const nextValue = event.target.value;
+                              const nextValue = event.target.value.replace(/\D/g, "");
                               if (nextValue !== "" && Number(nextValue) > METER_MAX) return;
                               updateMeter(tenant.id, utility, nextValue);
                             }}
