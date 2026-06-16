@@ -48,6 +48,7 @@ select:focus, input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgb
 .button.primary { color: white; background: var(--teal); }
 .button.primary:hover { background: var(--teal-dark); }
 .button.secondary { color: #344054; background: #fff; border-color: #cfd7e2; }
+.button:disabled { cursor: not-allowed; opacity: .52; transform: none; box-shadow: none; }
 
 .tenant-list { display: grid; gap: 16px; }
 .tenant-card { padding: 20px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 2px 9px rgba(31,41,55,.035); }
@@ -125,7 +126,6 @@ select:focus, input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgb
 .bill-total-panel > div { display: flex; align-items: center; gap: 8px; }
 .bill-total-panel > strong { color: #0b5f59; font-size: 25px; }
 .bill-total-panel small { font-size: 11px; font-weight: 600; }
-.bill-tenant { padding: 0 25px 22px; color: #7b8796; text-align: center; font-size: 10px; }
 .bill-actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 0 18px 18px; }
 .bill-actions strong, .bill-actions span { display: block; }
 .bill-actions strong { font-size: 14px; }
@@ -177,7 +177,6 @@ select:focus, input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgb
   .bill-item-icon { width: 23px; height: 23px; }
   .bill-item-icon svg { width: 13px; height: 13px; }
   .bill-total-panel { margin-inline: 14px; }
-  .bill-tenant { padding-inline: 14px; }
   .bill-actions { align-items: stretch; flex-direction: column; }
   .bill-actions .button { width: 100%; }
 }
@@ -320,8 +319,72 @@ select:focus, input:focus {
   position: absolute;
   inset: 0 0 auto;
   height: 2px;
-  background: linear-gradient(90deg, #2563eb, #22d3ee 45%, transparent 82%);
+  background: linear-gradient(90deg, var(--building-accent, #2563eb), #22d3ee 45%, transparent 82%);
   border-radius: 13px 13px 0 0;
+}
+.tenant-card.editing {
+  padding-top: 0;
+  border-left: 5px solid var(--building-accent, #2563eb);
+}
+.tenant-card.compact {
+  padding: 0;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--building-accent, #2563eb) 20%, #d7e0ec);
+}
+.tenant-compact-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px 18px 22px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--building-accent, #2563eb) 10%, #fff), #fff 46%),
+    #fff;
+  border-left: 7px solid var(--building-accent, #2563eb);
+}
+.tenant-building-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-bottom: 10px;
+  padding: 4px 9px;
+  color: var(--building-accent, #2563eb);
+  background: color-mix(in srgb, var(--building-accent, #2563eb) 10%, #fff);
+  border: 1px solid color-mix(in srgb, var(--building-accent, #2563eb) 28%, #dbe3ef);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.tenant-compact-room {
+  color: #0b1424;
+  font-size: 36px;
+  font-weight: 850;
+  letter-spacing: -.03em;
+  line-height: .95;
+}
+.tenant-compact-name {
+  margin-top: 9px;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 650;
+}
+.tenant-compact-rent {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tenant-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.compact-action {
+  min-height: 37px;
+  padding: 7px 12px;
 }
 .tenant-heading { min-height: 64px; padding-bottom: 0; border-bottom-color: #e6ebf2; }
 .room-number { color: #0f1b2d; font-size: 16px; letter-spacing: -.01em; }
@@ -346,6 +409,13 @@ select:focus, input:focus {
 }
 
 .period-controls .field { min-width: 154px; }
+.bill-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .table-wrap {
   background: rgba(255,255,255,.96);
   border-color: #d4deeb;
@@ -433,6 +503,13 @@ select:focus, input:focus {
   .topbar-tools { display: block; }
   .filter label { display: block; margin-bottom: 3px; }
   .tenant-card { padding-inline: 16px; }
+  .tenant-card.compact { padding: 0; }
+  .tenant-compact-card { align-items: flex-start; padding: 16px; }
+  .tenant-compact-room { font-size: 31px; }
+  .tenant-card-actions { flex-direction: column; align-items: stretch; }
+  .tenant-card-actions .icon-button { width: 100%; }
+  .bill-toolbar { justify-content: stretch; }
+  .bill-toolbar .period-controls, .bill-toolbar .button { width: 100%; }
   .room-number::before { display: none; }
 }
 

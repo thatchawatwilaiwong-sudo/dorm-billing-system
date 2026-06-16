@@ -9,6 +9,7 @@ import {
   DoorOpen,
   Download,
   Droplets,
+  Edit3,
   FileText,
   House,
   Plus,
@@ -53,6 +54,13 @@ const INITIAL_DATA = {
 
 const money = (value) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value || 0);
+
+const BUILDING_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
+
+function buildingColor(buildings, building) {
+  const index = Math.max(0, buildings.indexOf(building));
+  return BUILDING_COLORS[index % BUILDING_COLORS.length];
+}
 
 function usePersistentData() {
   const [data, setData] = useState(() => {
@@ -159,6 +167,7 @@ function App() {
       ],
       meters: { ...current.meters, [id]: { water: {}, electric: {} } },
     }));
+    return id;
   };
 
   const addBuilding = () => {
@@ -265,6 +274,20 @@ function NavButton({ active, icon: Icon, children, onClick }) {
 }
 
 function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, deleteTenant }) {
+  const [editingIds, setEditingIds] = useState(() => new Set());
+  const setEditing = (id, editing) => {
+    setEditingIds((current) => {
+      const next = new Set(current);
+      if (editing) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const handleAddTenant = () => {
+    const id = addTenant();
+    setEditing(id, true);
+  };
+
   return (
     <section>
       <div className="section-actions">
@@ -274,37 +297,63 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
         </div>
         <div className="button-row">
           <button className="button secondary" onClick={addBuilding}><Building2 size={17} /> เพิ่มอาคาร</button>
-          <button className="button primary" onClick={addTenant}><Plus size={17} /> เพิ่มผู้พัก</button>
+          <button className="button primary" onClick={handleAddTenant}><Plus size={17} /> เพิ่มผู้พัก</button>
         </div>
       </div>
 
       <div className="tenant-list">
-        {tenants.map((tenant) => (
-          <article className="tenant-card" key={tenant.id}>
-            <div className="tenant-heading">
-              <div className="room-number">ห้อง {tenant.room || "ใหม่"}</div>
-              <button className="icon-button danger" aria-label="ลบห้อง" onClick={() => deleteTenant(tenant.id)}>
-                <Trash2 size={17} />
-              </button>
-            </div>
-            <div className="form-grid">
-              <Field label="เลขห้อง"><input value={tenant.room} onChange={(e) => updateTenant(tenant.id, { room: e.target.value })} /></Field>
-              <Field label="ชื่อผู้พัก"><input value={tenant.name} onChange={(e) => updateTenant(tenant.id, { name: e.target.value })} /></Field>
-              <Field label="อาคาร / Tag">
-                <select value={tenant.building} onChange={(e) => updateTenant(tenant.id, { building: e.target.value })}>
-                  {data.buildings.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </Field>
-              <Field label="ค่าเช่าต่อเดือน">
-                <div className="input-suffix"><input type="number" min="0" value={tenant.rent} onChange={(e) => updateTenant(tenant.id, { rent: Number(e.target.value) })} /><span>บาท</span></div>
-              </Field>
-            </div>
-            <div className="utility-settings">
-              <UtilitySetting label="ค่าน้ำ" utility="water" tenant={tenant} defaultRate={17} updateTenant={updateTenant} />
-              <UtilitySetting label="ค่าไฟ" utility="electric" tenant={tenant} defaultRate={7} updateTenant={updateTenant} />
-            </div>
-          </article>
-        ))}
+        {tenants.map((tenant) => {
+          const editing = editingIds.has(tenant.id);
+          const accent = buildingColor(data.buildings, tenant.building);
+          return (
+            <article className={`tenant-card ${editing ? "editing" : "compact"}`} style={{ "--building-accent": accent }} key={tenant.id}>
+              {editing ? (
+                <>
+                  <div className="tenant-heading">
+                    <div className="room-number">ห้อง {tenant.room || "ใหม่"}</div>
+                    <div className="tenant-card-actions">
+                      <button className="button primary compact-action" onClick={() => setEditing(tenant.id, false)}><Save size={16} /> Save</button>
+                      <button className="icon-button danger" aria-label="ลบห้อง" onClick={() => deleteTenant(tenant.id)}>
+                        <Trash2 size={17} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="form-grid">
+                    <Field label="เลขห้อง"><input value={tenant.room} onChange={(e) => updateTenant(tenant.id, { room: e.target.value })} /></Field>
+                    <Field label="ชื่อผู้พัก"><input value={tenant.name} onChange={(e) => updateTenant(tenant.id, { name: e.target.value })} /></Field>
+                    <Field label="อาคาร / Tag">
+                      <select value={tenant.building} onChange={(e) => updateTenant(tenant.id, { building: e.target.value })}>
+                        {data.buildings.map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="ค่าเช่าต่อเดือน">
+                      <div className="input-suffix"><input type="number" min="0" value={tenant.rent} onChange={(e) => updateTenant(tenant.id, { rent: Number(e.target.value) })} /><span>บาท</span></div>
+                    </Field>
+                  </div>
+                  <div className="utility-settings">
+                    <UtilitySetting label="ค่าน้ำ" utility="water" tenant={tenant} defaultRate={17} updateTenant={updateTenant} />
+                    <UtilitySetting label="ค่าไฟ" utility="electric" tenant={tenant} defaultRate={7} updateTenant={updateTenant} />
+                  </div>
+                </>
+              ) : (
+                <div className="tenant-compact-card">
+                  <div>
+                    <div className="tenant-building-chip">{tenant.building || "ไม่ระบุอาคาร"}</div>
+                    <div className="tenant-compact-room">{tenant.room || "ห้องใหม่"}</div>
+                    <div className="tenant-compact-name">{tenant.name || "ยังไม่ระบุชื่อผู้พัก"}</div>
+                    <div className="tenant-compact-rent">ค่าเช่า {money(tenant.rent)} บาท/เดือน</div>
+                  </div>
+                  <div className="tenant-card-actions">
+                    <button className="button secondary compact-action" onClick={() => setEditing(tenant.id, true)}><Edit3 size={16} /> Edit</button>
+                    <button className="icon-button danger" aria-label="ลบห้อง" onClick={() => deleteTenant(tenant.id)}>
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
         {tenants.length === 0 && <EmptyState text="ยังไม่มีผู้พักในอาคารนี้" />}
       </div>
     </section>
@@ -347,9 +396,16 @@ function PeriodControls({ year, month, setYear, setMonth }) {
   return (
     <div className="period-controls">
       <Field label="ปี พ.ศ.">
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-          {years.map((item) => <option key={item}>{item}</option>)}
-        </select>
+        <input
+          type="number"
+          list="thai-year-options"
+          min={START_YEAR - 1}
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value) || START_YEAR)}
+        />
+        <datalist id="thai-year-options">
+          {years.map((item) => <option key={item} value={item} />)}
+        </datalist>
       </Field>
       <Field label="เดือนที่ต้องการกรอก">
         <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
@@ -474,9 +530,14 @@ function BillsPage({ data, tenants, year, month, setYear, setMonth }) {
       <div className="section-actions">
         <div>
           <h2>บิลค่าเช่ารายห้อง</h2>
-          <p>ตรวจสอบยอดแล้วบันทึกเป็นรูป PNG แยกแต่ละห้อง</p>
+          <p>ตรวจสอบยอดแล้วบันทึกเป็นรูป PNG แยกแต่ละห้อง หรือบันทึกทุกห้องพร้อมกัน</p>
         </div>
-        <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
+        <div className="bill-toolbar">
+          <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
+          <button className="button secondary" disabled={tenants.length === 0} onClick={() => saveAllBillImages(data, tenants, year, month)}>
+            <Download size={17} /> บันทึกบิลทั้งหมด
+          </button>
+        </div>
       </div>
       <div className="bill-list">
         {tenants.map((tenant) => (
@@ -530,10 +591,9 @@ function BillCard({ data, tenant, year, month }) {
           <div><ReceiptText size={21} /><strong>รวม</strong></div>
           <strong>{money(total)} <small>บาท</small></strong>
         </div>
-        <div className="bill-tenant">ผู้พัก : {tenant.name || "ไม่ระบุชื่อผู้พัก"}</div>
       </div>
       <div className="bill-actions">
-        <div><strong>ยอดรวม {money(total)} บาท</strong><span>{tenant.name || "ไม่ระบุชื่อผู้พัก"}</span></div>
+        <div><strong>ยอดรวม {money(total)} บาท</strong><span>ห้อง {tenant.room || "—"} · {tenant.building}</span></div>
         <button className="button primary" onClick={() => saveBillImage(data, tenant, year, month)}>
           <Download size={17} /> บันทึกเป็นรูป
         </button>
@@ -556,7 +616,18 @@ function BillRow({ label, result, icon }) {
   );
 }
 
-async function saveBillImage(data, tenant, year, month) {
+function downloadBlob(blob, filename, delay = 0) {
+  window.setTimeout(() => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, delay);
+}
+
+async function createBillImageFile(data, tenant, year, month) {
   const canvas = document.createElement("canvas");
   canvas.width = 1400;
   canvas.height = 1680;
@@ -652,11 +723,15 @@ async function saveBillImage(data, tenant, year, month) {
   context.textAlign = "center";
   context.fillStyle = "#667085";
   context.font = "25px sans-serif";
-  context.fillText(`ผู้พัก : ${tenant.name || "—"}`, 700, 1520);
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
   const filename = `บิล-${tenant.building}-${tenant.room}-${MONTHS[month]}-${year}.png`;
   const file = new File([blob], filename, { type: "image/png" });
+  return { blob, filename, file };
+}
+
+async function saveBillImage(data, tenant, year, month) {
+  const { blob, filename, file } = await createBillImageFile(data, tenant, year, month);
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
@@ -665,12 +740,21 @@ async function saveBillImage(data, tenant, year, month) {
       if (error.name === "AbortError") return;
     }
   }
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(blob, filename);
+}
+
+async function saveAllBillImages(data, tenants, year, month) {
+  const images = await Promise.all(tenants.map((tenant) => createBillImageFile(data, tenant, year, month)));
+  const files = images.map((image) => image.file);
+  if (navigator.canShare?.({ files })) {
+    try {
+      await navigator.share({ files, title: `บิลค่าเช่า-${MONTHS[month]}-${year}` });
+      return;
+    } catch (error) {
+      if (error.name === "AbortError") return;
+    }
+  }
+  images.forEach((image, index) => downloadBlob(image.blob, image.filename, index * 180));
 }
 
 function EmptyState({ text }) {
