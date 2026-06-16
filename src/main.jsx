@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Building2,
@@ -19,6 +19,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import { hasSupabaseConfig, supabase } from "./supabaseClient";
 import "./styles.css";
 
 const MONTHS = [
@@ -55,6 +56,8 @@ const INITIAL_DATA = {
 const money = (value) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value || 0);
 
+const STORAGE_KEY = "dorm-billing-data";
+const SUPABASE_TABLE = "dorm_app_state";
 const BUILDING_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
 
 function buildingColor(buildings, building) {
@@ -62,20 +65,132 @@ function buildingColor(buildings, building) {
   return BUILDING_COLORS[index % BUILDING_COLORS.length];
 }
 
+function readLocalData() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || INITIAL_DATA;
+  } catch {
+    return INITIAL_DATA;
+  }
+}
+
+function writeLocalData(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
 function usePersistentData() {
-  const [data, setData] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("dorm-billing-data")) || INITIAL_DATA;
-    } catch {
-      return INITIAL_DATA;
-    }
-  });
+  const [data, setData] = useState(readLocalData);
+  const [syncState, setSyncState] = useState(() => ({
+    mode: hasSupabaseConfig ? "cloud" : "local",
+    status: hasSupabaseConfig ? "loading" : "saved",
+    message: hasSupabaseConfig ? "กำลังเชื่อม Supabase" : "ข้อมูลอยู่บนอุปกรณ์นี้",
+  }));
+  const cloudReadyRef = useRef(!hasSupabaseConfig);
+  const remoteUpdateRef = useRef(false);
+  const saveTimerRef = useRef(null);
 
   useEffect(() => {
-    localStorage.setItem("dorm-billing-data", JSON.stringify(data));
+    if (!hasSupabaseConfig) return undefined;
+    let cancelled = false;
+
+    async function loadCloudData() {
+      const localData = readLocalData();
+      setSyncState({ mode: "cloud", status: "loading", message: "กำลังโหลดข้อมูลจาก Supabase" });
+
+      const { data: row, error } = await supabase
+        .from(SUPABASE_TABLE)
+        .select("data")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Supabase load failed", error);
+        cloudReadyRef.current = false;
+        setSyncState({ mode: "cloud", status: "error", message: "เชื่อม Supabase ไม่สำเร็จ ใช้ข้อมูลในเครื่องก่อน" });
+        return;
+      }
+
+      if (row?.data) {
+        remoteUpdateRef.current = true;
+        writeLocalData(row.data);
+        setData(row.data);
+        cloudReadyRef.current = true;
+        setSyncState({ mode: "cloud", status: "saved", message: "ข้อมูลกลางจาก Supabase" });
+        return;
+      }
+
+      const { error: seedError } = await supabase
+        .from(SUPABASE_TABLE)
+        .upsert({ id: 1, data: localData, updated_at: new Date().toISOString() }, { onConflict: "id" });
+
+      if (cancelled) return;
+
+      if (seedError) {
+        console.error("Supabase seed failed", seedError);
+        cloudReadyRef.current = false;
+        setSyncState({ mode: "cloud", status: "error", message: "สร้างข้อมูลกลางไม่สำเร็จ ใช้ข้อมูลในเครื่องก่อน" });
+        return;
+      }
+
+      cloudReadyRef.current = true;
+      setData(localData);
+      setSyncState({ mode: "cloud", status: "saved", message: "สร้างข้อมูลกลางบน Supabase แล้ว" });
+    }
+
+    loadCloudData();
+
+    const channel = supabase
+      .channel("dorm-app-state-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: SUPABASE_TABLE, filter: "id=eq.1" },
+        (payload) => {
+          if (!payload.new?.data) return;
+          remoteUpdateRef.current = true;
+          writeLocalData(payload.new.data);
+          setData(payload.new.data);
+          setSyncState({ mode: "cloud", status: "saved", message: "อัปเดตจาก Supabase แล้ว" });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    writeLocalData(data);
+
+    if (!hasSupabaseConfig || !cloudReadyRef.current) return undefined;
+
+    if (remoteUpdateRef.current) {
+      remoteUpdateRef.current = false;
+      return undefined;
+    }
+
+    setSyncState({ mode: "cloud", status: "saving", message: "กำลังบันทึกขึ้น Supabase" });
+    window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(async () => {
+      const { error } = await supabase
+        .from(SUPABASE_TABLE)
+        .upsert({ id: 1, data, updated_at: new Date().toISOString() }, { onConflict: "id" });
+
+      if (error) {
+        console.error("Supabase save failed", error);
+        setSyncState({ mode: "cloud", status: "error", message: "บันทึก Supabase ไม่สำเร็จ" });
+        return;
+      }
+
+      setSyncState({ mode: "cloud", status: "saved", message: "บันทึกบน Supabase แล้ว" });
+    }, 500);
+
+    return () => window.clearTimeout(saveTimerRef.current);
   }, [data]);
 
-  return [data, setData];
+  return [data, setData, syncState];
 }
 
 function previousPeriod(year, month) {
@@ -117,7 +232,7 @@ function utilityCost(data, tenant, utility, year, month) {
 }
 
 function App() {
-  const [data, setData] = usePersistentData();
+  const [data, setData, syncState] = usePersistentData();
   const [page, setPage] = useState("tenants");
   const [year, setYear] = useState(2569);
   const [month, setMonth] = useState(0);
@@ -213,7 +328,7 @@ function App() {
         </nav>
         <div className="sidebar-note">
           <Save size={16} />
-          ข้อมูลบันทึกอัตโนมัติ
+          {syncState.mode === "cloud" ? "ซิงก์ข้อมูลอัตโนมัติ" : "ข้อมูลบันทึกในเครื่อง"}
         </div>
       </aside>
 
@@ -224,7 +339,13 @@ function App() {
             <h1>{page === "tenants" ? "ผู้พักและห้องพัก" : page === "meters" ? "มิเตอร์และค่าใช้จ่าย" : "บิลค่าเช่า"}</h1>
           </div>
           <div className="topbar-tools">
-            <div className="sync-status"><Cloud size={17} /><span><strong><Check size={12} /> บันทึกแล้ว</strong><small>ข้อมูลล่าสุดอยู่บนอุปกรณ์นี้</small></span></div>
+            <div className={`sync-status ${syncState.status}`}>
+              <Cloud size={17} />
+              <span>
+                <strong><Check size={12} /> {syncState.status === "saving" ? "กำลังบันทึก" : syncState.status === "loading" ? "กำลังโหลด" : syncState.status === "error" ? "มีปัญหา Sync" : "บันทึกแล้ว"}</strong>
+                <small>{syncState.message}</small>
+              </span>
+            </div>
             <div className="filter">
               <label>อาคาร</label>
               <select value={building} onChange={(event) => setBuilding(event.target.value)}>

@@ -269,6 +269,16 @@ h2 { color: #101a2b; font-size: 19px; letter-spacing: -.02em; }
   border: 1px solid #d9e3f0;
   border-radius: 10px;
 }
+.sync-status.loading, .sync-status.saving {
+  color: #075985;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.sync-status.error {
+  color: #b42318;
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
 .sync-status > svg { color: #3b82f6; }
 .sync-status span { display: grid; }
 .sync-status strong { display: flex; align-items: center; gap: 4px; color: #1e3a5f; font-size: 10px; }

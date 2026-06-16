@@ -20,6 +20,31 @@ npm run dev
 
 ## การจัดเก็บข้อมูล
 
-เวอร์ชันนี้เก็บข้อมูลด้วย `localStorage` ของเบราว์เซอร์ ข้อมูลจึงอยู่เฉพาะอุปกรณ์และเบราว์เซอร์ที่กรอกข้อมูล ไม่ซิงก์ข้ามเครื่อง
+ถ้าไม่ได้ตั้งค่า Supabase เว็บจะเก็บข้อมูลด้วย `localStorage` ของเบราว์เซอร์ ข้อมูลจึงอยู่เฉพาะอุปกรณ์และเบราว์เซอร์ที่กรอกข้อมูล
 
-หากต้องการใช้งานหลายอุปกรณ์ร่วมกัน ควรเชื่อมระบบล็อกอินและฐานข้อมูลออนไลน์ เช่น Supabase/PostgreSQL
+ถ้าตั้งค่า Supabase แล้ว เว็บจะบันทึกข้อมูลไว้ที่ตาราง `dorm_app_state` และซิงก์ข้ามเครื่องผ่านฐานข้อมูลกลาง
+
+## เชื่อม Supabase
+
+1. สร้าง Supabase project
+2. เปิด SQL Editor แล้วรันไฟล์ `supabase-schema.sql`
+3. สร้างไฟล์ `.env.local` จาก `.env.example`
+4. ใส่ค่า Supabase ของโปรเจกต์คุณ
+
+```bash
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-anon-key
+```
+
+5. รันเว็บใหม่
+
+```bash
+npm run dev
+```
+
+สำหรับ GitHub Pages ให้เพิ่ม Repository Secrets สองตัวนี้:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+แล้ว run workflow deploy ใหม่ หรือ push commit ใหม่ขึ้น `main`
