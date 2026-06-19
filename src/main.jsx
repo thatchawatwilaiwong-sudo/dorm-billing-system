@@ -32,7 +32,9 @@ const MONTHS = [
 const MONTH_SHORTS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 const APP_PIN = "115974";
-const LOGO_SRC = "./baan-nuntika-logo.jpg";
+const APP_FONT = "ChulaCharasNew";
+const RESIDENCES_NAME = "Nuntika Residences";
+const OLD_RESIDENCES_NAME = "Baan Nuntika";
 const OLD_RESERVE_NAME = "Nuntika Reserves";
 const RESERVE_NAME = "Nuntika Reserve";
 const START_YEAR = 2568;
@@ -40,13 +42,13 @@ const METER_MAX = 9999;
 const METER_RANGE = METER_MAX + 1;
 const METER_ROLLOVER_START = 9000;
 const INITIAL_DATA = {
-  buildings: ["Baan Nuntika", RESERVE_NAME],
+  buildings: [RESIDENCES_NAME, RESERVE_NAME],
   tenants: [
     {
       id: "room-202",
       room: "202",
       name: "ผู้พักตัวอย่าง",
-      building: "Baan Nuntika",
+      building: RESIDENCES_NAME,
       rent: 3000,
       waterMode: "unit",
       waterRate: 17,
@@ -70,7 +72,7 @@ const money = (value) =>
 const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
 const CLOUD_SAVE_DELAY_MS = 1000;
-const BUILDING_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
+const BUILDING_COLORS = ["#111111", "#DCD4C6", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
 const DASHBOARD_RANGES = [
   { id: "1y", label: "1 ปี", months: 12 },
   { id: "2y", label: "2 ปี", months: 24 },
@@ -80,8 +82,8 @@ const DASHBOARD_RANGES = [
   { id: "all", label: "All" },
 ];
 const BILL_THEMES = [
-  { accent: "#2563eb", header: "#0d1a2d", soft: "#eaf2ff", text: "#1d4ed8" },
-  { accent: "#7c3aed", header: "#32165f", soft: "#f3e8ff", text: "#6d28d9" },
+  { accent: "#111111", header: "#000000", soft: "#f7f7f7", text: "#111111" },
+  { accent: "#DCD4C6", header: "#5f574c", soft: "#f7f3ec", text: "#6d6256" },
   { accent: "#0891b2", header: "#083344", soft: "#e0f7fb", text: "#0e7490" },
   { accent: "#ea580c", header: "#431407", soft: "#fff1e8", text: "#c2410c" },
   { accent: "#16a34a", header: "#052e16", soft: "#e9fbea", text: "#15803d" },
@@ -98,17 +100,21 @@ function buildingTheme(buildings, building) {
   return BILL_THEMES[index % BILL_THEMES.length];
 }
 
+function normalizeBuildingName(building) {
+  if (building === OLD_RESIDENCES_NAME) return RESIDENCES_NAME;
+  if (building === OLD_RESERVE_NAME) return RESERVE_NAME;
+  return building;
+}
+
 function normalizeData(data) {
   const source = data || INITIAL_DATA;
-  const buildings = [...new Set((source.buildings || INITIAL_DATA.buildings).map((building) => (
-    building === OLD_RESERVE_NAME ? RESERVE_NAME : building
-  )))];
+  const buildings = [...new Set((source.buildings || INITIAL_DATA.buildings).map(normalizeBuildingName))];
   return {
     ...source,
     buildings,
     tenants: (source.tenants || []).map((tenant) => ({
       ...tenant,
-      building: tenant.building === OLD_RESERVE_NAME ? RESERVE_NAME : tenant.building,
+      building: normalizeBuildingName(tenant.building),
     })),
     meters: source.meters || {},
   };
@@ -462,7 +468,7 @@ function App() {
 
   const addTenant = () => {
     const id = `room-${Date.now()}`;
-    const firstBuilding = data.buildings[0] || "Baan Nuntika";
+    const firstBuilding = data.buildings[0] || RESIDENCES_NAME;
     setData((current) => ({
       ...current,
       tenants: [
@@ -514,7 +520,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <AppLogo className="brand-mark" />
-          <span className="brand-copy"><strong>Baan Nuntika</strong><small>DORM OPERATIONS</small></span>
+          <span className="brand-copy"><strong>{RESIDENCES_NAME}</strong><small>DORM OPERATIONS</small></span>
         </div>
         <nav>
           <NavButton active={page === "dashboard"} icon={BarChart3} onClick={() => setPage("dashboard")}>
@@ -615,7 +621,7 @@ function AuthGate({ children }) {
       <form className="pin-card" onSubmit={submitPin}>
         <AppLogo className="pin-logo" />
         <p className="eyebrow">SECURE ACCESS</p>
-        <h1>Baan Nuntika</h1>
+        <h1>{RESIDENCES_NAME}</h1>
         <p className="pin-copy">กรอกรหัส PIN 6 หลักเพื่อเข้าสู่ระบบจัดการหอพัก</p>
         <label className="pin-field">
           <span>PIN CODE</span>
@@ -644,8 +650,8 @@ function AuthGate({ children }) {
 
 function AppLogo({ className = "" }) {
   return (
-    <span className={`app-logo ${className}`}>
-      <img src={LOGO_SRC} alt="Baan Nuntika" />
+    <span className={`app-logo ${className}`} aria-label={RESIDENCES_NAME}>
+      <strong>NR</strong>
     </span>
   );
 }
@@ -1275,6 +1281,7 @@ function downloadBlob(blob, filename, delay = 0) {
 }
 
 async function createBillImageFile(data, tenant, year, month) {
+  await document.fonts?.load(`700 58px ${APP_FONT}`);
   const canvas = document.createElement("canvas");
   canvas.width = 1400;
   canvas.height = 1680;
@@ -1301,10 +1308,10 @@ async function createBillImageFile(data, tenant, year, month) {
   roundRect(45, 40, 1310, 310, 30, theme.header);
   context.fillStyle = "#ffffff";
   context.textAlign = "left";
-  context.font = "700 58px sans-serif";
+  context.font = `700 58px ${APP_FONT}, sans-serif`;
   context.fillText(`บิลค่าเช่าห้อง ${tenant.building}`, 190, 165);
   context.fillStyle = theme.accent;
-  context.font = "500 24px sans-serif";
+  context.font = `500 24px ${APP_FONT}, sans-serif`;
   context.fillText(tenant.building.toUpperCase(), 193, 215);
   context.strokeStyle = "#ffffff";
   context.lineWidth = 6;
@@ -1314,26 +1321,26 @@ async function createBillImageFile(data, tenant, year, month) {
 
   roundRect(80, 395, 485, 185, 22, theme.soft);
   context.fillStyle = theme.text;
-  context.font = "600 28px sans-serif";
+  context.font = `600 28px ${APP_FONT}, sans-serif`;
   context.fillText("ห้องที่", 125, 462);
   context.fillStyle = "#172033";
-  context.font = "700 74px sans-serif";
+  context.font = `700 74px ${APP_FONT}, sans-serif`;
   context.fillText(tenant.room || "—", 125, 545);
   context.strokeStyle = "#d5e1e4";
   context.lineWidth = 2;
   context.beginPath(); context.moveTo(620, 420); context.lineTo(620, 555); context.stroke();
   context.fillStyle = theme.text;
-  context.font = "600 29px sans-serif";
+  context.font = `600 29px ${APP_FONT}, sans-serif`;
   context.fillText("เดือน", 685, 462);
   context.fillStyle = "#172033";
-  context.font = "700 43px sans-serif";
+  context.font = `700 43px ${APP_FONT}, sans-serif`;
   context.fillText(`${MONTHS[month]} ${year - 543}`, 685, 525);
 
   roundRect(70, 650, 1260, 82, 15, theme.soft);
   const headers = ["รายการ", "เลขครั้งก่อน", "เลขครั้งนี้", "จำนวนหน่วยที่ใช้", "หน่วยละ", "รวม"];
   context.fillStyle = "#264769";
   context.textAlign = "center";
-  context.font = "600 24px sans-serif";
+  context.font = `600 24px ${APP_FONT}, sans-serif`;
   headers.forEach((text, index) => context.fillText(text, (columns[index] + columns[index + 1]) / 2, 702));
 
   const rows = [
@@ -1342,12 +1349,12 @@ async function createBillImageFile(data, tenant, year, month) {
     ["ค่าเช่า", "", "", "", "", money(tenant.rent)],
   ];
   const rowCenters = [825, 955, 1085];
-  context.font = "30px sans-serif";
+  context.font = `30px ${APP_FONT}, sans-serif`;
   rows.forEach((row, rowIndex) => row.forEach((text, columnIndex) => {
     context.fillStyle = columnIndex === 5 ? theme.text : "#172033";
     context.textAlign = columnIndex === 0 ? "left" : columnIndex === 5 ? "right" : "center";
     const x = columnIndex === 0 ? columns[columnIndex] + 28 : columnIndex === 5 ? columns[columnIndex + 1] - 28 : (columns[columnIndex] + columns[columnIndex + 1]) / 2;
-    context.font = columnIndex === 5 ? "700 32px sans-serif" : "30px sans-serif";
+    context.font = columnIndex === 5 ? `700 32px ${APP_FONT}, sans-serif` : `30px ${APP_FONT}, sans-serif`;
     context.fillText(String(text), x, rowCenters[rowIndex]);
   }));
   [865, 995, 1125].forEach((y) => {
@@ -1361,16 +1368,16 @@ async function createBillImageFile(data, tenant, year, month) {
   roundRect(80, 1200, 1240, 215, 24, theme.soft, theme.accent);
   context.fillStyle = theme.text;
   context.textAlign = "left";
-  context.font = "700 48px sans-serif";
+  context.font = `700 48px ${APP_FONT}, sans-serif`;
   context.fillText("รวม", 145, 1325);
   context.textAlign = "right";
-  context.font = "700 82px sans-serif";
+  context.font = `700 82px ${APP_FONT}, sans-serif`;
   context.fillText(money(total), 1230, 1320);
-  context.font = "600 27px sans-serif";
+  context.font = `600 27px ${APP_FONT}, sans-serif`;
   context.fillText("บาท", 1230, 1360);
   context.textAlign = "center";
   context.fillStyle = "#667085";
-  context.font = "25px sans-serif";
+  context.font = `25px ${APP_FONT}, sans-serif`;
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
   const filename = `บิล-${tenant.building}-${tenant.room}-${MONTHS[month]}-${year}.png`;
