@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  BarChart3,
   Building2,
   CalendarDays,
   Calculator,
@@ -16,7 +17,9 @@ import {
   ReceiptText,
   Save,
   Trash2,
+  TrendingUp,
   Users,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "./supabaseClient";
@@ -26,6 +29,7 @@ const MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
+const MONTH_SHORTS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 const APP_PIN = "115974";
 const LOGO_SRC = "./baan-nuntika-logo.jpg";
@@ -67,10 +71,31 @@ const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
 const CLOUD_SAVE_DELAY_MS = 1000;
 const BUILDING_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
+const DASHBOARD_RANGES = [
+  { id: "1y", label: "1 ปี", months: 12 },
+  { id: "2y", label: "2 ปี", months: 24 },
+  { id: "3y", label: "3 ปี", months: 36 },
+  { id: "5y", label: "5 ปี", months: 60 },
+  { id: "ytd", label: "YTD" },
+  { id: "all", label: "All" },
+];
+const BILL_THEMES = [
+  { accent: "#2563eb", header: "#0d1a2d", soft: "#eaf2ff", text: "#1d4ed8" },
+  { accent: "#7c3aed", header: "#32165f", soft: "#f3e8ff", text: "#6d28d9" },
+  { accent: "#0891b2", header: "#083344", soft: "#e0f7fb", text: "#0e7490" },
+  { accent: "#ea580c", header: "#431407", soft: "#fff1e8", text: "#c2410c" },
+  { accent: "#16a34a", header: "#052e16", soft: "#e9fbea", text: "#15803d" },
+  { accent: "#db2777", header: "#500724", soft: "#fce7f3", text: "#be185d" },
+];
 
 function buildingColor(buildings, building) {
   const index = Math.max(0, buildings.indexOf(building));
   return BUILDING_COLORS[index % BUILDING_COLORS.length];
+}
+
+function buildingTheme(buildings, building) {
+  const index = Math.max(0, buildings.indexOf(building));
+  return BILL_THEMES[index % BILL_THEMES.length];
 }
 
 function normalizeData(data) {
@@ -294,9 +319,117 @@ function utilityCost(data, tenant, utility, year, month) {
   };
 }
 
+function monthlyRoomRevenue(data, tenant, year, month) {
+  const water = utilityCost(data, tenant, "water", year, month);
+  const electric = utilityCost(data, tenant, "electric", year, month);
+  const rent = Number(tenant.rent || 0);
+  return {
+    tenant,
+    rent,
+    water: water.total,
+    electric: electric.total,
+    total: rent + water.total + electric.total,
+    hasWaterData: water.fixed || water.units !== null,
+    hasElectricData: electric.fixed || electric.units !== null,
+  };
+}
+
+function monthlyRevenueRows(data, tenants, year) {
+  return MONTHS.map((monthName, monthIndex) => {
+    const rooms = tenants.map((tenant) => monthlyRoomRevenue(data, tenant, year, monthIndex));
+    const rent = rooms.reduce((sum, room) => sum + room.rent, 0);
+    const water = rooms.reduce((sum, room) => sum + room.water, 0);
+    const electric = rooms.reduce((sum, room) => sum + room.electric, 0);
+    return {
+      month: monthName,
+      shortMonth: MONTH_SHORTS[monthIndex],
+      label: `${MONTH_SHORTS[monthIndex]} ${String(year - 543).slice(-2)}`,
+      year,
+      monthIndex,
+      rent,
+      water,
+      electric,
+      total: rent + water + electric,
+      rooms,
+    };
+  });
+}
+
+function periodIndex(year, month) {
+  return year * 12 + month;
+}
+
+function periodFromIndex(index) {
+  return { year: Math.floor(index / 12), month: index % 12 };
+}
+
+function dashboardPeriodRows(data, tenants, endYear, endMonth, rangeId) {
+  const endIndex = periodIndex(endYear, endMonth);
+  const firstIndex = periodIndex(START_YEAR, 11);
+  const selectedRange = DASHBOARD_RANGES.find((item) => item.id === rangeId) || DASHBOARD_RANGES[0];
+  let startIndex = endIndex - (selectedRange.months || 12) + 1;
+
+  if (rangeId === "ytd") startIndex = periodIndex(endYear, 0);
+  if (rangeId === "all") startIndex = firstIndex;
+  startIndex = Math.max(startIndex, firstIndex);
+
+  const rows = [];
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const { year, month } = periodFromIndex(index);
+    const monthName = MONTHS[month];
+    const rooms = tenants.map((tenant) => monthlyRoomRevenue(data, tenant, year, month));
+    const rent = rooms.reduce((sum, room) => sum + room.rent, 0);
+    const water = rooms.reduce((sum, room) => sum + room.water, 0);
+    const electric = rooms.reduce((sum, room) => sum + room.electric, 0);
+    rows.push({
+      id: `${year}-${month}`,
+      year,
+      month,
+      monthName,
+      label: `${MONTH_SHORTS[month]} ${String(year - 543).slice(-2)}`,
+      rent,
+      water,
+      electric,
+      total: rent + water + electric,
+      rooms,
+    });
+  }
+  return rows.length ? rows : [monthlyRevenueRows(data, tenants, endYear)[endMonth]];
+}
+
+function sumRevenueRows(rows) {
+  const rent = rows.reduce((sum, row) => sum + row.rent, 0);
+  const water = rows.reduce((sum, row) => sum + row.water, 0);
+  const electric = rows.reduce((sum, row) => sum + row.electric, 0);
+  return { rent, water, electric, total: rent + water + electric };
+}
+
+function dashboardSummary(data, tenants, year, month) {
+  const months = monthlyRevenueRows(data, tenants, year);
+  const selected = months[month] || months[0];
+  const previous = month === 0 ? null : months[month - 1];
+  const delta = previous ? selected.total - previous.total : 0;
+  const buildingRows = data.buildings
+    .map((building) => {
+      const buildingTenants = tenants.filter((tenant) => tenant.building === building);
+      const rooms = buildingTenants.map((tenant) => monthlyRoomRevenue(data, tenant, year, month));
+      const rent = rooms.reduce((sum, room) => sum + room.rent, 0);
+      const water = rooms.reduce((sum, room) => sum + room.water, 0);
+      const electric = rooms.reduce((sum, room) => sum + room.electric, 0);
+      return { building, roomCount: buildingTenants.length, rent, water, electric, total: rent + water + electric };
+    })
+    .filter((row) => row.roomCount > 0 || row.total > 0);
+  const topRooms = selected.rooms
+    .slice()
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+  const missingReadings = selected.rooms.filter((room) => !room.hasWaterData || !room.hasElectricData).length;
+  return { months, selected, previous, delta, buildingRows, topRooms, missingReadings };
+}
+
 function App() {
   const [data, setData, syncState] = usePersistentData();
-  const [page, setPage] = useState("tenants");
+  const [page, setPage] = useState("dashboard");
   const [year, setYear] = useState(2569);
   const [month, setMonth] = useState(0);
   const [building, setBuilding] = useState("ทั้งหมด");
@@ -305,6 +438,11 @@ function App() {
     () => data.tenants.filter((tenant) => building === "ทั้งหมด" || tenant.building === building),
     [data.tenants, building],
   );
+  const pageTitle =
+    page === "dashboard" ? "Dashboard รายได้" :
+    page === "tenants" ? "ผู้พักและห้องพัก" :
+    page === "meters" ? "มิเตอร์และค่าใช้จ่าย" :
+    "บิลค่าเช่า";
 
   const updateTenant = (id, patch) => {
     setData((current) => ({
@@ -379,6 +517,9 @@ function App() {
           <span className="brand-copy"><strong>Baan Nuntika</strong><small>DORM OPERATIONS</small></span>
         </div>
         <nav>
+          <NavButton active={page === "dashboard"} icon={BarChart3} onClick={() => setPage("dashboard")}>
+            Dashboard
+          </NavButton>
           <NavButton active={page === "tenants"} icon={Users} onClick={() => setPage("tenants")}>
             ผู้พักและห้องพัก
           </NavButton>
@@ -399,7 +540,7 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">ระบบจัดการค่าเช่า น้ำ และไฟ</p>
-            <h1>{page === "tenants" ? "ผู้พักและห้องพัก" : page === "meters" ? "มิเตอร์และค่าใช้จ่าย" : "บิลค่าเช่า"}</h1>
+            <h1>{pageTitle}</h1>
           </div>
           <div className="topbar-tools">
             <div className={`sync-status ${syncState.status}`}>
@@ -419,6 +560,9 @@ function App() {
           </div>
         </header>
 
+        {page === "dashboard" && (
+          <DashboardPage data={data} tenants={filteredTenants} year={year} month={month} setYear={setYear} setMonth={setMonth} />
+        )}
         {page === "tenants" && (
           <TenantPage
             data={data}
@@ -512,6 +656,253 @@ function NavButton({ active, icon: Icon, children, onClick }) {
       <Icon size={19} />
       {children}
     </button>
+  );
+}
+
+function DashboardPage({ data, tenants, year, month, setYear, setMonth }) {
+  const [range, setRange] = useState("1y");
+  const rows = useMemo(() => dashboardPeriodRows(data, tenants, year, month, range), [data, tenants, year, month, range]);
+  const totals = useMemo(() => sumRevenueRows(rows), [rows]);
+  const maxMonthlyTotal = Math.max(...rows.map((item) => item.total), 1);
+  const averageMonthlyTotal = rows.length ? totals.total / rows.length : 0;
+  const rangeLabel = range === "all"
+    ? "ทุกเดือนตั้งแต่ ธ.ค. 2568"
+    : `${DASHBOARD_RANGES.find((item) => item.id === range)?.label || "1 ปี"} ล่าสุด`;
+
+  return (
+    <section className="dashboard-page">
+      <div className="section-actions">
+        <div>
+          <h2>Dashboard รายรับหอพัก</h2>
+          <p>กราฟแท่งรวมรายได้ค่าเช่า ค่าน้ำ และค่าไฟ ตามช่วงเวลาที่เลือก</p>
+        </div>
+        <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
+      </div>
+
+      <div className="dashboard-kpis">
+        <KpiCard icon={Wallet} label="รายรับทั้งหมด" value={`${money(totals.total)} บาท`} meta={rangeLabel} tone="blue" />
+        <KpiCard icon={House} label="รายได้ค่าเช่า" value={`${money(totals.rent)} บาท`} meta={`${percentOf(totals.rent, totals.total)}% ของทั้งหมด`} tone="indigo" />
+        <KpiCard icon={Droplets} label="รายได้ค่าน้ำ" value={`${money(totals.water)} บาท`} meta={`${percentOf(totals.water, totals.total)}% ของทั้งหมด`} tone="cyan" />
+        <KpiCard icon={Zap} label="รายได้ค่าไฟ" value={`${money(totals.electric)} บาท`} meta={`${percentOf(totals.electric, totals.total)}% ของทั้งหมด`} tone="amber" />
+      </div>
+
+      <article className="dashboard-panel revenue-dashboard-panel">
+        <div className="panel-heading dashboard-chart-heading">
+          <div>
+            <h3>รายรับรวมรายเดือน</h3>
+            <p>แต่ละแท่งแบ่งสีตามรายได้ค่าเช่า ค่าน้ำ และค่าไฟ</p>
+          </div>
+          <div className="range-controls" role="group" aria-label="เลือกช่วงเวลาย้อนหลัง">
+            {DASHBOARD_RANGES.map((item) => (
+              <button className={range === item.id ? "selected" : ""} key={item.id} onClick={() => setRange(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="revenue-chart-meta">
+          <div><strong>{rows.length}</strong><span>เดือนในช่วงที่เลือก</span></div>
+          <div><strong>{money(averageMonthlyTotal)}</strong><span>รายรับเฉลี่ยต่อเดือน</span></div>
+          <div><strong>{money(maxMonthlyTotal)}</strong><span>เดือนที่รายรับสูงสุด</span></div>
+        </div>
+        <StackedRevenueBars rows={rows} maxValue={maxMonthlyTotal} />
+        <div className="chart-legend">
+          <span><i className="rent" />ค่าเช่า</span>
+          <span><i className="water" />ค่าน้ำ</span>
+          <span><i className="electric" />ค่าไฟ</span>
+        </div>
+      </article>
+
+      <div className="dashboard-breakdown-grid">
+        <article className="dashboard-panel">
+          <div className="panel-heading compact">
+            <div>
+              <h3>สรุปองค์ประกอบรายรับ</h3>
+              <p>รวมทั้งช่วงเวลาที่เลือก</p>
+            </div>
+          </div>
+          <RevenueBreakdown totals={totals} />
+        </article>
+        <article className="dashboard-panel">
+          <div className="panel-heading compact">
+            <div>
+              <h3>เดือนล่าสุดในกราฟ</h3>
+              <p>ใช้เทียบกับยอดสะสมของช่วงที่เลือก</p>
+            </div>
+          </div>
+          <LatestMonthCard row={rows[rows.length - 1]} />
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function percentOf(value, total) {
+  return total ? ((value / total) * 100).toFixed(1) : "0.0";
+}
+
+function KpiCard({ icon: Icon, label, value, meta, tone }) {
+  return (
+    <article className={`kpi-card ${tone}`}>
+      <span><Icon size={20} /></span>
+      <div>
+        <p>{label}</p>
+        <strong>{value}</strong>
+        {meta && <small>{meta}</small>}
+      </div>
+    </article>
+  );
+}
+
+function LineTrend({ rows, maxValue }) {
+  const width = 720;
+  const height = 210;
+  const pad = 24;
+  const points = rows.map((row, index) => {
+    const x = pad + (index * (width - pad * 2)) / Math.max(rows.length - 1, 1);
+    const y = height - pad - (row.total / maxValue) * (height - pad * 2);
+    return { x, y, row };
+  });
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  return (
+    <div className="line-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="กราฟแนวโน้มรายได้รวมรายเดือน">
+        <path className="grid-line" d={`M ${pad} ${height - pad} H ${width - pad}`} />
+        <path className="trend-area" d={`${path} L ${width - pad} ${height - pad} L ${pad} ${height - pad} Z`} />
+        <path className="trend-line" d={path} />
+        {points.map((point) => (
+          <g key={point.row.month}>
+            <circle cx={point.x} cy={point.y} r="4" />
+            <text x={point.x} y={height - 6}>{point.row.shortMonth}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function StackedRevenueBars({ rows, maxValue }) {
+  if (rows.length === 0) return <EmptyState text="ยังไม่มีข้อมูลสำหรับทำกราฟ" />;
+  return (
+    <div className="stacked-bars">
+      {rows.map((row) => {
+        const totalHeight = Math.max(row.total ? 18 : 6, (row.total / maxValue) * 220);
+        const rentPct = row.total ? (row.rent / row.total) * 100 : 0;
+        const waterPct = row.total ? (row.water / row.total) * 100 : 0;
+        const electricPct = row.total ? (row.electric / row.total) * 100 : 0;
+        return (
+          <div className="stacked-bar-item" key={row.id || `${row.year}-${row.monthIndex}`}>
+            <small>{money(row.total)}</small>
+            <div className="stacked-bar" style={{ height: totalHeight }}>
+              <span className="rent" style={{ height: `${rentPct}%` }} />
+              <span className="water" style={{ height: `${waterPct}%` }} />
+              <span className="electric" style={{ height: `${electricPct}%` }} />
+            </div>
+            <strong>{row.label || row.shortMonth}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RevenueBreakdown({ totals }) {
+  const rows = [
+    { label: "รายได้ค่าเช่า", value: totals.rent, className: "rent" },
+    { label: "รายได้ค่าน้ำ", value: totals.water, className: "water" },
+    { label: "รายได้ค่าไฟ", value: totals.electric, className: "electric" },
+  ];
+  return (
+    <div className="revenue-breakdown">
+      {rows.map((row) => {
+        const percent = percentOf(row.value, totals.total);
+        return (
+          <div className="breakdown-row" key={row.label}>
+            <div>
+              <span><i className={row.className} />{row.label}</span>
+              <strong>{money(row.value)} บาท</strong>
+            </div>
+            <div className="breakdown-track"><span className={row.className} style={{ width: `${percent}%` }} /></div>
+            <small>{percent}%</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LatestMonthCard({ row }) {
+  if (!row) return <EmptyState text="ยังไม่มีข้อมูลเดือนล่าสุด" />;
+  return (
+    <div className="latest-month-card">
+      <div>
+        <span>{row.monthName} {row.year - 543}</span>
+        <strong>{money(row.total)} บาท</strong>
+      </div>
+      <dl>
+        <div><dt>ค่าเช่า</dt><dd>{money(row.rent)}</dd></div>
+        <div><dt>ค่าน้ำ</dt><dd>{money(row.water)}</dd></div>
+        <div><dt>ค่าไฟ</dt><dd>{money(row.electric)}</dd></div>
+      </dl>
+    </div>
+  );
+}
+
+function RevenueMix({ rows, total }) {
+  return (
+    <div className="revenue-mix">
+      {rows.map((row) => {
+        const percent = total ? (row.value / total) * 100 : 0;
+        return (
+          <div className="mix-row" key={row.label}>
+            <div>
+              <strong>{row.label}</strong>
+              <span>{money(row.value)} บาท</span>
+            </div>
+            <div className="mix-track">
+              <span style={{ width: `${percent}%`, background: row.color }} />
+            </div>
+            <small>{percent.toFixed(1)}%</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BuildingRevenueList({ data, rows, total }) {
+  if (rows.length === 0) return <EmptyState text="ยังไม่มีข้อมูลรายได้ตามตึก" />;
+  return (
+    <div className="building-revenue-list">
+      {rows.map((row) => {
+        const theme = buildingTheme(data.buildings, row.building);
+        const pct = total ? (row.total / total) * 100 : 0;
+        return (
+          <div className="building-revenue-row" key={row.building} style={{ "--row-accent": theme.accent }}>
+            <div>
+              <strong>{row.building}</strong>
+              <span>{row.roomCount} ห้อง · {money(row.total)} บาท</span>
+            </div>
+            <div className="building-revenue-track"><span style={{ width: `${pct}%` }} /></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TopRoomList({ rows }) {
+  if (rows.length === 0) return <EmptyState text="ยังไม่มีห้องสำหรับจัดอันดับ" />;
+  return (
+    <div className="top-room-list">
+      {rows.map((row, index) => (
+        <div className="top-room-row" key={row.tenant.id}>
+          <span>{index + 1}</span>
+          <div><strong>ห้อง {row.tenant.room || "—"}</strong><small>{row.tenant.building}</small></div>
+          <b>{money(row.total)} บาท</b>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -800,8 +1191,17 @@ function BillCard({ data, tenant, year, month }) {
   const water = utilityCost(data, tenant, "water", year, month);
   const electric = utilityCost(data, tenant, "electric", year, month);
   const total = water.total + electric.total + Number(tenant.rent || 0);
+  const theme = buildingTheme(data.buildings, tenant.building);
   return (
-    <article className="bill-card">
+    <article
+      className="bill-card"
+      style={{
+        "--bill-accent": theme.accent,
+        "--bill-header": theme.header,
+        "--bill-soft": theme.soft,
+        "--bill-text": theme.text,
+      }}
+    >
       <div className="bill-document">
         <div className="bill-header">
           <div className="bill-building-icon"><Building2 size={27} /></div>
@@ -882,6 +1282,7 @@ async function createBillImageFile(data, tenant, year, month) {
   const water = utilityCost(data, tenant, "water", year, month);
   const electric = utilityCost(data, tenant, "electric", year, month);
   const total = water.total + electric.total + Number(tenant.rent || 0);
+  const theme = buildingTheme(data.buildings, tenant.building);
   const columns = [70, 300, 510, 710, 940, 1120, 1330];
   const roundRect = (x, y, width, height, radius, fill, stroke) => {
     context.beginPath();
@@ -897,12 +1298,12 @@ async function createBillImageFile(data, tenant, year, month) {
   context.shadowOffsetY = 12;
   roundRect(45, 40, 1310, 1580, 30, "#ffffff");
   context.shadowColor = "transparent";
-  roundRect(45, 40, 1310, 310, 30, "#0d1a2d");
+  roundRect(45, 40, 1310, 310, 30, theme.header);
   context.fillStyle = "#ffffff";
   context.textAlign = "left";
   context.font = "700 58px sans-serif";
   context.fillText(`บิลค่าเช่าห้อง ${tenant.building}`, 190, 165);
-  context.fillStyle = "#75dff0";
+  context.fillStyle = theme.accent;
   context.font = "500 24px sans-serif";
   context.fillText(tenant.building.toUpperCase(), 193, 215);
   context.strokeStyle = "#ffffff";
@@ -911,8 +1312,8 @@ async function createBillImageFile(data, tenant, year, month) {
   context.beginPath();
   context.moveTo(82, 111); context.lineTo(123, 80); context.lineTo(164, 111); context.stroke();
 
-  roundRect(80, 395, 485, 185, 22, "#edf5ff");
-  context.fillStyle = "#2563eb";
+  roundRect(80, 395, 485, 185, 22, theme.soft);
+  context.fillStyle = theme.text;
   context.font = "600 28px sans-serif";
   context.fillText("ห้องที่", 125, 462);
   context.fillStyle = "#172033";
@@ -921,14 +1322,14 @@ async function createBillImageFile(data, tenant, year, month) {
   context.strokeStyle = "#d5e1e4";
   context.lineWidth = 2;
   context.beginPath(); context.moveTo(620, 420); context.lineTo(620, 555); context.stroke();
-  context.fillStyle = "#2563eb";
+  context.fillStyle = theme.text;
   context.font = "600 29px sans-serif";
   context.fillText("เดือน", 685, 462);
   context.fillStyle = "#172033";
   context.font = "700 43px sans-serif";
   context.fillText(`${MONTHS[month]} ${year - 543}`, 685, 525);
 
-  roundRect(70, 650, 1260, 82, 15, "#eaf2ff");
+  roundRect(70, 650, 1260, 82, 15, theme.soft);
   const headers = ["รายการ", "เลขครั้งก่อน", "เลขครั้งนี้", "จำนวนหน่วยที่ใช้", "หน่วยละ", "รวม"];
   context.fillStyle = "#264769";
   context.textAlign = "center";
@@ -943,7 +1344,7 @@ async function createBillImageFile(data, tenant, year, month) {
   const rowCenters = [825, 955, 1085];
   context.font = "30px sans-serif";
   rows.forEach((row, rowIndex) => row.forEach((text, columnIndex) => {
-    context.fillStyle = columnIndex === 5 ? "#1d4ed8" : "#172033";
+    context.fillStyle = columnIndex === 5 ? theme.text : "#172033";
     context.textAlign = columnIndex === 0 ? "left" : columnIndex === 5 ? "right" : "center";
     const x = columnIndex === 0 ? columns[columnIndex] + 28 : columnIndex === 5 ? columns[columnIndex + 1] - 28 : (columns[columnIndex] + columns[columnIndex + 1]) / 2;
     context.font = columnIndex === 5 ? "700 32px sans-serif" : "30px sans-serif";
@@ -957,8 +1358,8 @@ async function createBillImageFile(data, tenant, year, month) {
   });
   context.setLineDash([]);
 
-  roundRect(80, 1200, 1240, 215, 24, "#eaf2ff", "#bfd3fb");
-  context.fillStyle = "#1d4ed8";
+  roundRect(80, 1200, 1240, 215, 24, theme.soft, theme.accent);
+  context.fillStyle = theme.text;
   context.textAlign = "left";
   context.font = "700 48px sans-serif";
   context.fillText("รวม", 145, 1325);
