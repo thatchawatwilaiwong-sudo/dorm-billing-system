@@ -49,6 +49,8 @@ const INITIAL_DATA = {
       id: "room-202",
       room: "202",
       name: "ผู้พักตัวอย่าง",
+      idCard: "",
+      phone: "",
       building: RESIDENCES_NAME,
       rent: 3000,
       waterMode: "unit",
@@ -73,6 +75,7 @@ const money = (value) =>
 const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
 const CLOUD_SAVE_DELAY_MS = 1000;
+const BILL_EXPORT_WIDTH = 860;
 const BUILDING_COLORS = ["#111111", "#DCD4C6", "#0891b2", "#ea580c", "#16a34a", "#db2777"];
 const DASHBOARD_RANGES = [
   { id: "1y", label: "1 ปี", months: 12 },
@@ -90,6 +93,7 @@ const BILL_THEMES = [
   { accent: "#16a34a", header: "#052e16", soft: "#e9fbea", text: "#15803d", subhead: "#bbf7d0" },
   { accent: "#db2777", header: "#500724", soft: "#fce7f3", text: "#be185d", subhead: "#fbcfe8" },
 ];
+let logoDataUrlPromise;
 
 function buildingColor(buildings, building) {
   const index = Math.max(0, buildings.indexOf(building));
@@ -124,6 +128,8 @@ function normalizeData(data) {
     buildings,
     tenants: (source.tenants || []).map((tenant) => ({
       ...tenant,
+      idCard: tenant.idCard || "",
+      phone: tenant.phone || "",
       building: normalizeBuildingName(tenant.building),
     })),
     meters: source.meters || {},
@@ -487,6 +493,8 @@ function App() {
           id,
           room: "",
           name: "",
+          idCard: "",
+          phone: "",
           building: firstBuilding,
           rent: 0,
           waterMode: "unit",
@@ -670,7 +678,7 @@ function NavButton({ active, icon: Icon, children, onClick }) {
   return (
     <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}>
       <Icon size={19} />
-      {children}
+      <span className="nav-label">{children}</span>
     </button>
   );
 }
@@ -970,6 +978,21 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                   <div className="form-grid">
                     <Field label="เลขห้อง"><input value={tenant.room} onChange={(e) => updateTenant(tenant.id, { room: e.target.value })} /></Field>
                     <Field label="ชื่อผู้พัก"><input value={tenant.name} onChange={(e) => updateTenant(tenant.id, { name: e.target.value })} /></Field>
+                    <Field label="เลขบัตรประชาชน">
+                      <input
+                        inputMode="numeric"
+                        maxLength={13}
+                        value={tenant.idCard || ""}
+                        onChange={(e) => updateTenant(tenant.id, { idCard: e.target.value.replace(/\D/g, "").slice(0, 13) })}
+                      />
+                    </Field>
+                    <Field label="เบอร์ติดต่อ">
+                      <input
+                        inputMode="tel"
+                        value={tenant.phone || ""}
+                        onChange={(e) => updateTenant(tenant.id, { phone: e.target.value })}
+                      />
+                    </Field>
                     <Field label="อาคาร / Tag">
                       <select value={tenant.building} onChange={(e) => updateTenant(tenant.id, { building: e.target.value })}>
                         {data.buildings.map((item) => <option key={item}>{item}</option>)}
@@ -990,6 +1013,9 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                     <div className="tenant-building-chip">{tenant.building || "ไม่ระบุอาคาร"}</div>
                     <div className="tenant-compact-room">{tenant.room || "ห้องใหม่"}</div>
                     <div className="tenant-compact-name">{tenant.name || "ยังไม่ระบุชื่อผู้พัก"}</div>
+                    <div className="tenant-compact-contact">
+                      {tenant.phone ? `โทร ${tenant.phone}` : "ยังไม่ระบุเบอร์"} · {tenant.idCard ? `บัตร ${tenant.idCard}` : "ยังไม่ระบุเลขบัตร"}
+                    </div>
                     <div className="tenant-compact-rent">ค่าเช่า {money(tenant.rent)} บาท/เดือน</div>
                   </div>
                   <div className="tenant-card-actions">
@@ -1296,6 +1322,23 @@ function billImageFilename(tenant, year, month) {
   return filename.replace(/[\\/:*?"<>|]/g, "-");
 }
 
+async function imageUrlToDataUrl(url) {
+  const response = await fetch(url, { cache: "force-cache" });
+  if (!response.ok) throw new Error(`โหลดโลโก้ไม่สำเร็จ (${response.status})`);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result), { once: true });
+    reader.addEventListener("error", () => reject(reader.error), { once: true });
+    reader.readAsDataURL(blob);
+  });
+}
+
+function getLogoDataUrl() {
+  logoDataUrlPromise ||= imageUrlToDataUrl(APP_LOGO_SRC);
+  return logoDataUrlPromise;
+}
+
 async function waitForImages(element) {
   const images = Array.from(element.querySelectorAll("img"));
   await Promise.all(images.map((image) => {
@@ -1308,20 +1351,53 @@ async function waitForImages(element) {
   }));
 }
 
+async function prepareBillExportElement(element) {
+  const logoDataUrl = await getLogoDataUrl();
+  const clone = element.cloneNode(true);
+  clone.classList.add("bill-export-document");
+  clone.querySelectorAll(".bill-building-icon img, .app-logo img").forEach((image) => {
+    image.setAttribute("src", logoDataUrl);
+    image.removeAttribute("crossorigin");
+  });
+
+  const host = document.createElement("div");
+  host.className = "bill-export-host";
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = `${BILL_EXPORT_WIDTH}px`;
+  host.style.background = "#ffffff";
+  host.appendChild(clone);
+  document.body.appendChild(host);
+
+  await waitForImages(clone);
+  await document.fonts?.ready;
+  return { host, clone };
+}
+
 async function createBillImageFile(tenant, year, month) {
   await document.fonts?.ready;
   const element = document.querySelector(`[data-bill-id="${CSS.escape(tenant.id)}"]`);
   if (!element) throw new Error(`ไม่พบหน้าบิลของห้อง ${tenant.room || tenant.id}`);
-  await waitForImages(element);
-  const blob = await toBlob(element, {
-    cacheBust: true,
-    pixelRatio: 2,
-    backgroundColor: "#ffffff",
-  });
-  if (!blob) throw new Error(`สร้างรูปบิลห้อง ${tenant.room || tenant.id} ไม่สำเร็จ`);
-  const filename = billImageFilename(tenant, year, month);
-  const file = new File([blob], filename, { type: "image/png" });
-  return { blob, filename, file };
+  const { host, clone } = await prepareBillExportElement(element);
+  try {
+    const blob = await toBlob(clone, {
+      cacheBust: false,
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+      width: BILL_EXPORT_WIDTH,
+      style: {
+        width: `${BILL_EXPORT_WIDTH}px`,
+        maxWidth: `${BILL_EXPORT_WIDTH}px`,
+      },
+    });
+    if (!blob) throw new Error(`สร้างรูปบิลห้อง ${tenant.room || tenant.id} ไม่สำเร็จ`);
+    const filename = billImageFilename(tenant, year, month);
+    const file = new File([blob], filename, { type: "image/png" });
+    return { blob, filename, file };
+  } finally {
+    host.remove();
+  }
 }
 
 async function saveBillImage(tenant, year, month) {

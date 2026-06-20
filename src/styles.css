@@ -502,6 +502,12 @@ select:focus, input:focus {
   font-size: 14px;
   font-weight: 650;
 }
+.tenant-compact-contact {
+  margin-top: 4px;
+  color: #7b8798;
+  font-size: 11px;
+  font-weight: 650;
+}
 .tenant-compact-rent {
   margin-top: 3px;
   color: #64748b;
@@ -874,6 +880,7 @@ i.electric, .breakdown-track .electric { background: #f59e0b; }
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 84px minmax(0, 1fr); }
   .brand-copy { display: none; }
+  .nav-label { display: none; }
   .topbar-tools { gap: 8px; }
   .sync-status { display: none; }
   .dashboard-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1133,6 +1140,64 @@ h3 { font-size: 18px; }
   .bill-total-panel > strong { font-size: 44px; }
 }
 
+@media (max-width: 1024px) {
+  body { background: #f3f6fb; }
+  .app-shell { display: block; }
+  .sidebar {
+    position: fixed;
+    z-index: 50;
+    inset: auto 10px max(10px, env(safe-area-inset-bottom)) 10px;
+    width: auto;
+    height: 74px;
+    padding: 8px;
+    background: rgba(8,17,31,.96);
+    border: 1px solid rgba(148,163,184,.16);
+    border-radius: 24px;
+    box-shadow: 0 18px 48px rgba(8,17,31,.28);
+    backdrop-filter: blur(18px);
+  }
+  .brand, .sidebar-note { display: none; }
+  .sidebar nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    height: 100%;
+  }
+  .nav-button {
+    justify-content: center;
+    min-height: 56px;
+    padding: 7px 5px;
+    color: #94a3b8;
+    border-radius: 18px;
+    transform: none;
+  }
+  .nav-button:hover { transform: none; }
+  .nav-button svg { flex: 0 0 auto; }
+  .nav-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.15;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nav-button.active {
+    color: #fff;
+    background: linear-gradient(135deg, rgba(37,99,235,.42), rgba(34,211,238,.16));
+    border-color: rgba(96,165,250,.32);
+    box-shadow: inset 0 2px #67e8f9, 0 10px 24px rgba(15,23,42,.18);
+  }
+  main { padding: 0 20px 112px; }
+  .topbar {
+    min-height: auto;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 24px 0 18px;
+  }
+}
+
 @media (max-width: 760px) {
   body { font-size: 100%; }
   .pin-screen { padding: 18px; }
@@ -1224,3 +1289,99 @@ h3 { font-size: 18px; }
   .bill-total-panel { margin-inline: 10px; padding: 18px 14px; }
   .bill-total-panel > strong { font-size: 29px; }
 }
+
+.bill-export-host, .bill-export-host * {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.bill-export-document {
+  width: 860px !important;
+  max-width: 860px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #dfe5ed !important;
+  border-radius: 30px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+.bill-export-document .bill-header {
+  min-height: 214px !important;
+  gap: 34px !important;
+  padding: 48px 50px !important;
+}
+.bill-export-document .bill-building-icon {
+  width: 116px !important;
+  height: 116px !important;
+  border-radius: 22px !important;
+}
+.bill-export-document .bill-building-icon img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  transform: scale(.88) !important;
+}
+.bill-export-document .bill-header h3 {
+  font-size: 37px !important;
+  line-height: 1.12 !important;
+}
+.bill-export-document .bill-header span {
+  margin-top: 20px !important;
+  font-size: 22px !important;
+}
+.bill-export-document .bill-period {
+  margin: 54px 36px 46px !important;
+  border-radius: 27px !important;
+}
+.bill-export-document .bill-room,
+.bill-export-document .bill-month {
+  min-height: 162px !important;
+  gap: 28px !important;
+  padding: 34px 38px !important;
+}
+.bill-export-document .bill-room svg,
+.bill-export-document .bill-month svg {
+  width: 42px !important;
+  height: 42px !important;
+}
+.bill-export-document .bill-room span { font-size: 24px !important; }
+.bill-export-document .bill-room strong { font-size: 58px !important; }
+.bill-export-document .bill-month strong { font-size: 36px !important; }
+.bill-export-document .bill-table-wrap { padding: 0 36px !important; }
+.bill-export-document table { font-size: 20px !important; }
+.bill-export-document thead th {
+  height: 118px !important;
+  padding: 18px 8px !important;
+  font-size: 16px !important;
+}
+.bill-export-document td {
+  height: 120px !important;
+  padding: 18px 8px !important;
+  font-size: 20px !important;
+}
+.bill-export-document td:last-child { font-size: 25px !important; }
+.bill-export-document .bill-item {
+  gap: 18px !important;
+  font-size: 20px !important;
+}
+.bill-export-document .bill-item-icon {
+  width: 56px !important;
+  height: 56px !important;
+}
+.bill-export-document .bill-item-icon svg {
+  width: 26px !important;
+  height: 26px !important;
+}
+.bill-export-document .bill-total-panel {
+  min-height: 178px !important;
+  margin: 54px 36px 34px !important;
+  padding: 42px 52px !important;
+  border-radius: 28px !important;
+}
+.bill-export-document .bill-total-panel svg {
+  width: 40px !important;
+  height: 40px !important;
+}
+.bill-export-document .bill-total-panel > div strong { font-size: 34px !important; }
+.bill-export-document .bill-total-panel > strong { font-size: 64px !important; }
+.bill-export-document .bill-total-panel small { font-size: 24px !important; }
