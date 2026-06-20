@@ -661,7 +661,7 @@ function AuthGate({ children }) {
 function AppLogo({ className = "" }) {
   return (
     <span className={`app-logo ${className}`} aria-label={RESIDENCES_NAME}>
-      <img src={APP_LOGO_SRC} alt={RESIDENCES_NAME} />
+      <img src={APP_LOGO_SRC} alt={RESIDENCES_NAME} crossOrigin="anonymous" />
     </span>
   );
 }
@@ -1221,7 +1221,7 @@ function BillCard({ data, tenant, year, month }) {
     >
       <div className="bill-document" data-bill-id={tenant.id}>
         <div className="bill-header">
-          <div className="bill-building-icon"><img src={APP_LOGO_SRC} alt="" /></div>
+          <div className="bill-building-icon"><img src={APP_LOGO_SRC} alt="" crossOrigin="anonymous" /></div>
           <div>
             <h3>บิลค่าเช่าห้อง {tenant.building}</h3>
             <span>{tenant.building}</span>
@@ -1299,11 +1299,12 @@ function billImageFilename(tenant, year, month) {
 async function waitForImages(element) {
   const images = Array.from(element.querySelectorAll("img"));
   await Promise.all(images.map((image) => {
-    if (image.complete && image.naturalWidth > 0) return Promise.resolve();
-    return new Promise((resolve, reject) => {
+    const loaded = image.complete && image.naturalWidth > 0;
+    const waitForLoad = loaded ? Promise.resolve() : new Promise((resolve, reject) => {
       image.addEventListener("load", resolve, { once: true });
-      image.addEventListener("error", reject, { once: true });
+      image.addEventListener("error", () => reject(new Error(`โหลดโลโก้บิลไม่สำเร็จ: ${image.currentSrc || image.src}`)), { once: true });
     });
+    return waitForLoad.then(() => image.decode?.().catch(() => undefined));
   }));
 }
 
