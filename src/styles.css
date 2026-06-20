@@ -4,6 +4,7 @@
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+  unicode-range: U+0E00-0E7F;
 }
 @font-face {
   font-family: "ChulaCharasNew";
@@ -11,6 +12,7 @@
   font-weight: 600 800;
   font-style: normal;
   font-display: swap;
+  unicode-range: U+0E00-0E7F;
 }
 @font-face {
   font-family: "ChulaCharasNew";
@@ -18,6 +20,7 @@
   font-weight: 400;
   font-style: italic;
   font-display: swap;
+  unicode-range: U+0E00-0E7F;
 }
 @font-face {
   font-family: "ChulaCharasNew";
@@ -25,10 +28,11 @@
   font-weight: 600 800;
   font-style: italic;
   font-display: swap;
+  unicode-range: U+0E00-0E7F;
 }
 
 :root {
-  font-family: "ChulaCharasNew", system-ui, sans-serif;
+  font-family: "ChulaCharasNew", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, system-ui, sans-serif;
   color: #172033;
   background: #f5f7fa;
   font-synthesis: none;
@@ -53,14 +57,15 @@ button { cursor: pointer; }
   place-items: center;
   overflow: hidden;
   color: #0a0a0a;
-  background: linear-gradient(135deg, #ffffff, #f4f4f4);
+  background: #ffffff;
   border: 1px solid #111;
 }
-.app-logo strong {
-  color: #0a0a0a;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -.04em;
+.app-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: scale(1.45);
 }
 
 .pin-screen {
@@ -595,8 +600,9 @@ select:focus, input:focus {
 .bill-card { border-color: #d6dfec; box-shadow: 0 14px 38px rgba(15,23,42,.07); }
 .bill-document { border-color: #d8e1ed; box-shadow: 0 8px 24px rgba(15,23,42,.07); }
 .bill-header { background: var(--bill-header, #0d1a2d); }
-.bill-building-icon { color: #fff; border-color: color-mix(in srgb, var(--bill-accent, #3b82f6) 45%, #fff); background: color-mix(in srgb, var(--bill-accent, #3b82f6) 26%, #000); }
-.bill-header span { color: color-mix(in srgb, var(--bill-accent, #75dff0) 72%, #fff); }
+.bill-building-icon { overflow: hidden; color: #111; border-color: color-mix(in srgb, var(--bill-accent, #3b82f6) 28%, #fff); background: #fff; }
+.bill-building-icon img { display: block; width: 100%; height: 100%; object-fit: contain; transform: scale(1.35); }
+.bill-header span { color: var(--bill-subhead, #cbd5e1); }
 .bill-period { border-color: #d8e2ee; }
 .bill-room { color: var(--bill-text, #2563eb); background: var(--bill-soft, #edf5ff); }
 .bill-month { color: var(--bill-text, #2563eb); border-left-color: #d8e2ee; }
