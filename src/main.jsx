@@ -101,6 +101,15 @@ function buildingTheme(buildings, building) {
   return BILL_THEMES[index % BILL_THEMES.length];
 }
 
+function meterRowStyle(building) {
+  const reserve = building === RESERVE_NAME;
+  return {
+    "--meter-building-bg": reserve ? "#fbf8f1" : "#ffffff",
+    "--meter-building-strong-bg": reserve ? "#f3eddf" : "#ffffff",
+    "--meter-building-border": reserve ? "#DCD4C6" : "#e6ebf0",
+  };
+}
+
 function normalizeBuildingName(building) {
   if (building === OLD_RESIDENCES_NAME) return RESIDENCES_NAME;
   if (building === OLD_RESERVE_NAME) return RESERVE_NAME;
@@ -1092,7 +1101,7 @@ function MeterTable({ data, tenants, year, selectedMonth, updateMeter }) {
           {tenants.flatMap((tenant) => ["water", "electric"].map((utility) => {
             const fixed = tenant[`${utility}Mode`] === "fixed";
             return (
-              <tr key={`${tenant.id}-${utility}`}>
+              <tr key={`${tenant.id}-${utility}`} style={meterRowStyle(tenant.building)}>
                 <th className="sticky-col">
                   <strong>{tenant.room || "ไม่ระบุ"}</strong>
                   <span className={`utility-dot ${utility}`}>{utility === "water" ? "น้ำ" : "ไฟ"}</span>
@@ -1151,7 +1160,7 @@ function CostTable({ data, tenants, year }) {
         </thead>
         <tbody>
           {tenants.flatMap((tenant) => ["water", "electric"].map((utility) => (
-            <tr key={`${tenant.id}-${utility}`}>
+            <tr key={`${tenant.id}-${utility}`} style={meterRowStyle(tenant.building)}>
               <th className="sticky-col">
                 <strong>{tenant.room || "ไม่ระบุ"}</strong>
                 <span className={`utility-dot ${utility}`}>{utility === "water" ? "น้ำ" : "ไฟ"}</span>
