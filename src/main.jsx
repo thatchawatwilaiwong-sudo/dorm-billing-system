@@ -1506,7 +1506,7 @@ function BillCard({ data, tenant, year, month }) {
         <div className="bill-period">
           <div className="bill-room">
             <DoorOpen size={22} />
-            <span>ห้องที่</span>
+            <span>ห้อง</span>
             <strong>{tenant.room || "—"}</strong>
           </div>
           <div className="bill-month">
@@ -1601,13 +1601,30 @@ async function waitForImages(element) {
   }));
 }
 
+async function preloadImageSrc(src) {
+  await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("โหลดโลโก้สำหรับบิลไม่สำเร็จ"));
+    image.src = src;
+  });
+}
+
 async function prepareBillExportElement(element) {
   const logoDataUrl = await getLogoDataUrl();
+  await preloadImageSrc(logoDataUrl);
   const clone = element.cloneNode(true);
   clone.classList.add("bill-export-document");
+  clone.querySelectorAll(".bill-building-icon").forEach((icon) => {
+    icon.style.backgroundImage = `url("${logoDataUrl}")`;
+    icon.style.backgroundRepeat = "no-repeat";
+    icon.style.backgroundPosition = "center";
+    icon.style.backgroundSize = "contain";
+  });
   clone.querySelectorAll(".bill-building-icon img, .app-logo img").forEach((image) => {
     image.setAttribute("src", logoDataUrl);
     image.removeAttribute("crossorigin");
+    image.style.opacity = "1";
   });
 
   const host = document.createElement("div");

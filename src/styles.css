@@ -1570,3 +1570,276 @@ h3 { font-size: 18px; }
 .bill-export-document .bill-total-panel > div strong { font-size: 34px !important; }
 .bill-export-document .bill-total-panel > strong { font-size: 64px !important; }
 .bill-export-document .bill-total-panel small { font-size: 24px !important; }
+
+/* Liquid glass app theme */
+:root {
+  --glass-bg: rgba(255, 255, 255, .58);
+  --glass-bg-strong: rgba(255, 255, 255, .76);
+  --glass-line: rgba(255, 255, 255, .62);
+  --glass-shadow: 0 24px 70px rgba(42, 68, 105, .16);
+  --glass-inner: inset 0 1px 0 rgba(255,255,255,.88), inset 0 -1px 0 rgba(148,163,184,.16);
+  --liquid-blue: #75d7ff;
+  --liquid-violet: #a78bfa;
+  --liquid-mint: #7dd3c7;
+}
+
+body {
+  color: #132238;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(117, 215, 255, .50), transparent 30rem),
+    radial-gradient(circle at 78% 2%, rgba(167, 139, 250, .40), transparent 34rem),
+    radial-gradient(circle at 56% 88%, rgba(125, 211, 199, .36), transparent 32rem),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 42%, #f9fbff 100%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, rgba(255,255,255,.0), rgba(255,255,255,.55) 42%, rgba(255,255,255,.0) 62%),
+    radial-gradient(circle at 50% 35%, rgba(255,255,255,.46), transparent 22rem);
+  opacity: .72;
+}
+
+.pin-screen {
+  background:
+    radial-gradient(circle at 18% 10%, rgba(117, 215, 255, .55), transparent 28rem),
+    radial-gradient(circle at 84% 18%, rgba(167, 139, 250, .50), transparent 34rem),
+    linear-gradient(140deg, #dff5ff, #f9fbff 48%, #eef2ff);
+}
+
+.pin-card,
+.sidebar,
+.topbar,
+.tenant-card,
+.summary-panel,
+.kpi-card,
+.chart-card,
+.breakdown-card,
+.document-card,
+.empty-state,
+.bill-card,
+.sync-status {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-shadow), var(--glass-inner);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+}
+
+.pin-card,
+.tenant-card,
+.summary-panel,
+.kpi-card,
+.chart-card,
+.breakdown-card,
+.document-card,
+.empty-state,
+.bill-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.pin-card::before,
+.tenant-card::after,
+.summary-panel::before,
+.kpi-card::before,
+.chart-card::before,
+.breakdown-card::before,
+.document-card::before,
+.bill-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.72), rgba(255,255,255,.08) 42%, rgba(255,255,255,.42)),
+    radial-gradient(circle at 12% 0%, rgba(255,255,255,.78), transparent 9rem);
+  opacity: .55;
+}
+
+.pin-card > *,
+.tenant-card > *,
+.summary-panel > *,
+.kpi-card > *,
+.chart-card > *,
+.breakdown-card > *,
+.document-card > *,
+.bill-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar {
+  margin: 18px 0 18px 18px;
+  height: calc(100vh - 36px);
+  padding: 22px 16px;
+  background: rgba(13, 25, 45, .58);
+  border-radius: 34px;
+  border-color: rgba(255,255,255,.18);
+}
+
+.brand {
+  margin-bottom: 8px;
+  padding: 10px 10px 24px;
+  color: #fff;
+}
+
+.brand-mark,
+.pin-logo,
+.bill-building-icon {
+  background-color: rgba(255,255,255,.92);
+  border-color: rgba(255,255,255,.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 12px 32px rgba(15,23,42,.16);
+}
+
+.nav-button {
+  color: rgba(226, 236, 255, .74);
+  border: 1px solid transparent;
+  border-radius: 18px;
+}
+
+.nav-button:hover {
+  color: #fff;
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.18);
+}
+
+.nav-button.active {
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.28), rgba(255,255,255,.08)),
+    rgba(117, 215, 255, .18);
+  border-color: rgba(255,255,255,.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 14px 34px rgba(4, 18, 38, .20);
+}
+
+.sidebar-note {
+  color: rgba(226,236,255,.82);
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.18);
+}
+
+main { padding-left: 42px; }
+
+.topbar {
+  min-height: 104px;
+  margin-top: 18px;
+  padding: 22px 28px;
+  border-radius: 30px;
+}
+
+select,
+input,
+textarea,
+.segmented,
+.utility-box,
+.file-preview,
+.document-note {
+  background: rgba(255,255,255,.64);
+  border-color: rgba(255,255,255,.72);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 10px 24px rgba(42,68,105,.08);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+}
+
+select:focus,
+input:focus,
+textarea:focus {
+  border-color: rgba(117, 215, 255, .95);
+  box-shadow: 0 0 0 4px rgba(117, 215, 255, .24), inset 0 1px 0 rgba(255,255,255,.85);
+}
+
+.button {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 12px 28px rgba(42,68,105,.12);
+}
+
+.button::before {
+  content: "";
+  position: absolute;
+  inset: 1px auto auto 14%;
+  width: 70%;
+  height: 38%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.58), transparent);
+  border-radius: 999px;
+  opacity: .8;
+}
+
+.button.primary {
+  color: #082238;
+  background: linear-gradient(135deg, rgba(117,215,255,.95), rgba(125,211,199,.86));
+  border-color: rgba(255,255,255,.68);
+}
+
+.button.secondary,
+.file-dropzone,
+.mini-upload-button {
+  color: #15324f;
+  background: rgba(255,255,255,.62);
+  border-color: rgba(255,255,255,.74);
+}
+
+.tenant-card.compact,
+.tenant-compact-card,
+.meter-table thead th,
+.document-code,
+.building-revenue-row,
+.top-room-row,
+.mix-row {
+  background: rgba(255,255,255,.48);
+}
+
+.tenant-compact-card {
+  border-left-color: color-mix(in srgb, var(--building-accent, #75d7ff) 64%, #fff);
+}
+
+.meter-table tbody tr:hover td,
+.meter-table tbody tr:hover th {
+  background-color: rgba(255,255,255,.74);
+}
+
+.selected-month,
+.meter-table tbody .selected-month {
+  background: rgba(117, 215, 255, .20) !important;
+}
+
+.bill-document {
+  background: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (max-width: 1180px) {
+  .sidebar {
+    margin: 14px 0 14px 12px;
+    height: calc(100vh - 28px);
+  }
+  main { padding-left: 30px; }
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    margin: 0;
+    height: 74px;
+    background: rgba(8,17,31,.62);
+    border-color: rgba(255,255,255,.18);
+  }
+  main { padding-left: 20px; }
+  .topbar { margin-top: 14px; }
+}
+
+@media (max-width: 760px) {
+  main { padding-left: 14px; }
+  .topbar {
+    padding: 18px;
+    border-radius: 24px;
+  }
+}
