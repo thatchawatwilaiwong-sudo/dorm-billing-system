@@ -13,8 +13,12 @@ import {
   Droplets,
   Edit3,
   FileText,
+  FolderOpen,
   House,
+  Image as ImageIcon,
+  Paperclip,
   Plus,
+  Printer,
   ReceiptText,
   Save,
   Trash2,
@@ -34,16 +38,32 @@ const MONTH_SHORTS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ
 
 const APP_PIN = "115974";
 const APP_LOGO_SRC = "./nuntika-logo.jpeg";
+const BRAND_NAME = "Baan Nuntika";
 const RESIDENCES_NAME = "Nuntika Residences";
 const OLD_RESIDENCES_NAME = "Baan Nuntika";
 const OLD_RESERVE_NAME = "Nuntika Reserves";
 const RESERVE_NAME = "Nuntika Reserve";
+const FLOWSIDE_NAME = "Nuntika Flowside";
 const START_YEAR = 2568;
 const METER_MAX = 9999;
 const METER_RANGE = METER_MAX + 1;
 const METER_ROLLOVER_START = 9000;
+const DOCUMENT_TEMPLATES = [
+  { id: "PNRD", code: "PNRD", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Residences", building: RESIDENCES_NAME },
+  { id: "PNRS", code: "PNRS", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Reserve", building: RESERVE_NAME },
+  { id: "PNFS", code: "PNFS", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Flowside", building: FLOWSIDE_NAME },
+  { id: "RF", code: "RF", title: "ไฟล์ใบจองเข้าอยู่", building: "ทุกอาคาร" },
+  { id: "RHF", code: "RHF", title: "ไฟล์ใบรับมอบห้องพัก", building: "ทุกอาคาร" },
+];
+const TENANT_FILE_SLOTS = [
+  { key: "reservation", label: "เอกสารการจอง" },
+  { key: "transfer", label: "เอกสารการโอนเงิน" },
+  { key: "idCard", label: "บัตรประชาชน" },
+  { key: "other", label: "อื่นๆ" },
+];
 const INITIAL_DATA = {
-  buildings: [RESIDENCES_NAME, RESERVE_NAME],
+  buildings: [RESIDENCES_NAME, RESERVE_NAME, FLOWSIDE_NAME],
+  documents: DOCUMENT_TEMPLATES.map((item) => ({ ...item, note: "", file: null })),
   tenants: [
     {
       id: "room-202",
@@ -51,6 +71,10 @@ const INITIAL_DATA = {
       name: "ผู้พักตัวอย่าง",
       idCard: "",
       phone: "",
+      lineId: "",
+      deposit: 0,
+      moveInDate: "",
+      files: {},
       building: RESIDENCES_NAME,
       rent: 3000,
       waterMode: "unit",
@@ -71,6 +95,60 @@ const INITIAL_DATA = {
 
 const money = (value) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value || 0);
+
+function readUploadFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      resolve({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        size: file.size,
+        dataUrl: reader.result,
+        updatedAt: new Date().toISOString(),
+      });
+    }, { once: true });
+    reader.addEventListener("error", () => reject(reader.error), { once: true });
+    reader.readAsDataURL(file);
+  });
+}
+
+function fileKind(file) {
+  if (!file?.type && !file?.name) return "empty";
+  if (file.type?.startsWith("image/")) return "image";
+  if (file.type === "application/pdf" || file.name?.toLowerCase().endsWith(".pdf")) return "pdf";
+  return "file";
+}
+
+function fileSizeLabel(size) {
+  if (!size) return "";
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function printStoredFile(file) {
+  if (!file?.dataUrl) return;
+  const popup = window.open("", "_blank");
+  if (!popup) return;
+  const isPdf = fileKind(file) === "pdf";
+  popup.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>${file.name || "document"}</title>
+        <style>
+          html, body { margin: 0; min-height: 100%; background: #fff; }
+          body { display: grid; place-items: center; }
+          img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+          iframe { width: 100vw; height: 100vh; border: 0; }
+        </style>
+      </head>
+      <body>${isPdf ? `<iframe src="${file.dataUrl}"></iframe>` : `<img src="${file.dataUrl}" alt="">`}</body>
+    </html>
+  `);
+  popup.document.close();
+  popup.setTimeout(() => popup.print(), 500);
+}
 
 const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
@@ -122,14 +200,28 @@ function normalizeBuildingName(building) {
 
 function normalizeData(data) {
   const source = data || INITIAL_DATA;
-  const buildings = [...new Set((source.buildings || INITIAL_DATA.buildings).map(normalizeBuildingName))];
+  const buildings = [...new Set([...(source.buildings || INITIAL_DATA.buildings).map(normalizeBuildingName), ...INITIAL_DATA.buildings])];
+  const documentsById = Object.fromEntries((source.documents || []).map((document) => [document.id, document]));
+  const documents = DOCUMENT_TEMPLATES.map((template) => ({
+    ...template,
+    ...(documentsById[template.id] || {}),
+    code: template.code,
+    building: documentsById[template.id]?.building || template.building,
+    note: documentsById[template.id]?.note || "",
+    file: documentsById[template.id]?.file || null,
+  }));
   return {
     ...source,
     buildings,
+    documents,
     tenants: (source.tenants || []).map((tenant) => ({
       ...tenant,
       idCard: tenant.idCard || "",
       phone: tenant.phone || "",
+      lineId: tenant.lineId || "",
+      deposit: tenant.deposit || 0,
+      moveInDate: tenant.moveInDate || "",
+      files: tenant.files || {},
       building: normalizeBuildingName(tenant.building),
     })),
     meters: source.meters || {},
@@ -464,6 +556,7 @@ function App() {
     page === "dashboard" ? "Dashboard รายได้" :
     page === "tenants" ? "ผู้พักและห้องพัก" :
     page === "meters" ? "มิเตอร์และค่าใช้จ่าย" :
+    page === "documents" ? "คลังเอกสารออนไลน์" :
     "บิลค่าเช่า";
 
   const updateTenant = (id, patch) => {
@@ -495,6 +588,10 @@ function App() {
           name: "",
           idCard: "",
           phone: "",
+          lineId: "",
+          deposit: 0,
+          moveInDate: "",
+          files: {},
           building: firstBuilding,
           rent: 0,
           waterMode: "unit",
@@ -533,12 +630,19 @@ function App() {
     }));
   };
 
+  const updateDocument = (id, patch) => {
+    setData((current) => ({
+      ...current,
+      documents: current.documents.map((document) => document.id === id ? { ...document, ...patch } : document),
+    }));
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <AppLogo className="brand-mark" />
-          <span className="brand-copy"><strong>{RESIDENCES_NAME}</strong><small>DORM OPERATIONS</small></span>
+          <span className="brand-copy"><strong>{BRAND_NAME}</strong><small>DORM OPERATIONS</small></span>
         </div>
         <nav>
           <NavButton active={page === "dashboard"} icon={BarChart3} onClick={() => setPage("dashboard")}>
@@ -552,6 +656,9 @@ function App() {
           </NavButton>
           <NavButton active={page === "bills"} icon={FileText} onClick={() => setPage("bills")}>
             บิลค่าเช่า
+          </NavButton>
+          <NavButton active={page === "documents"} icon={FolderOpen} onClick={() => setPage("documents")}>
+            คลังเอกสาร
           </NavButton>
         </nav>
         <div className="sidebar-note">
@@ -611,6 +718,9 @@ function App() {
         {page === "bills" && (
           <BillsPage data={data} tenants={filteredTenants} year={year} month={month} setYear={setYear} setMonth={setMonth} />
         )}
+        {page === "documents" && (
+          <DocumentLibraryPage documents={data.documents} updateDocument={updateDocument} />
+        )}
       </main>
     </div>
   );
@@ -639,7 +749,7 @@ function AuthGate({ children }) {
       <form className="pin-card" onSubmit={submitPin}>
         <AppLogo className="pin-logo" />
         <p className="eyebrow">SECURE ACCESS</p>
-        <h1>{RESIDENCES_NAME}</h1>
+        <h1>{BRAND_NAME}</h1>
         <p className="pin-copy">กรอกรหัส PIN 6 หลักเพื่อเข้าสู่ระบบจัดการหอพัก</p>
         <label className="pin-field">
           <span>PIN CODE</span>
@@ -930,6 +1040,85 @@ function TopRoomList({ rows }) {
   );
 }
 
+function DocumentLibraryPage({ documents, updateDocument }) {
+  const handleFile = async (id, file) => {
+    if (!file) return;
+    updateDocument(id, { file: await readUploadFile(file) });
+  };
+
+  return (
+    <section>
+      <div className="section-actions">
+        <div>
+          <h2>คลังเอกสารออนไลน์</h2>
+          <p>แปะไฟล์ภาพหรือ PDF แก้ชื่อ/หมายเหตุ แล้วเปิดพิมพ์จากหน้าเว็บได้ทันที</p>
+        </div>
+      </div>
+
+      <div className="document-grid">
+        {documents.map((document) => (
+          <article className="document-card" key={document.id}>
+            <div className="document-card-head">
+              <span className="document-code">{document.code}</span>
+              <div>
+                <input
+                  className="document-title-input"
+                  value={document.title}
+                  onChange={(event) => updateDocument(document.id, { title: event.target.value })}
+                />
+                <small>{document.building}</small>
+              </div>
+            </div>
+            <FilePreview file={document.file} emptyText="ยังไม่ได้แปะไฟล์" />
+            <label className="file-dropzone">
+              <Paperclip size={18} />
+              <span>{document.file ? "เปลี่ยนไฟล์ภาพ/PDF" : "แปะไฟล์ภาพ/PDF"}</span>
+              <input type="file" accept="image/*,application/pdf" onChange={(event) => handleFile(document.id, event.target.files?.[0])} />
+            </label>
+            <textarea
+              className="document-note"
+              placeholder="หมายเหตุ เช่น เวอร์ชันเอกสาร วันที่อัปเดต หรือวิธีใช้"
+              value={document.note || ""}
+              onChange={(event) => updateDocument(document.id, { note: event.target.value })}
+            />
+            <div className="document-actions">
+              <button className="button secondary" disabled={!document.file} onClick={() => printStoredFile(document.file)}>
+                <Printer size={16} /> พิมพ์
+              </button>
+              <button className="button secondary" disabled={!document.file} onClick={() => updateDocument(document.id, { file: null })}>
+                <Trash2 size={16} /> ลบไฟล์
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FilePreview({ file, emptyText = "ยังไม่มีไฟล์" }) {
+  if (!file?.dataUrl) {
+    return (
+      <div className="file-preview empty">
+        <ImageIcon size={24} />
+        <span>{emptyText}</span>
+      </div>
+    );
+  }
+  const kind = fileKind(file);
+  return (
+    <div className={`file-preview ${kind}`}>
+      {kind === "image" && <img src={file.dataUrl} alt={file.name || "uploaded file"} />}
+      {kind === "pdf" && <iframe title={file.name || "PDF"} src={file.dataUrl} />}
+      {kind === "file" && <FileText size={30} />}
+      <div className="file-meta">
+        <strong>{file.name}</strong>
+        <span>{file.type || "ไฟล์"} {fileSizeLabel(file.size) && `· ${fileSizeLabel(file.size)}`}</span>
+      </div>
+    </div>
+  );
+}
+
 function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, deleteTenant }) {
   const [editingIds, setEditingIds] = useState(() => new Set());
   const setEditing = (id, editing) => {
@@ -943,6 +1132,20 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
   const handleAddTenant = () => {
     const id = addTenant();
     setEditing(id, true);
+  };
+  const handleTenantFile = async (tenant, slotKey, file) => {
+    if (!file) return;
+    updateTenant(tenant.id, {
+      files: {
+        ...(tenant.files || {}),
+        [slotKey]: await readUploadFile(file),
+      },
+    });
+  };
+  const removeTenantFile = (tenant, slotKey) => {
+    const nextFiles = { ...(tenant.files || {}) };
+    delete nextFiles[slotKey];
+    updateTenant(tenant.id, { files: nextFiles });
   };
 
   return (
@@ -977,7 +1180,15 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                   </div>
                   <div className="form-grid">
                     <Field label="เลขห้อง"><input value={tenant.room} onChange={(e) => updateTenant(tenant.id, { room: e.target.value })} /></Field>
-                    <Field label="ชื่อผู้พัก"><input value={tenant.name} onChange={(e) => updateTenant(tenant.id, { name: e.target.value })} /></Field>
+                    <Field label="ชื่อจริง-นามสกุล-ชื่อเล่น"><input value={tenant.name} onChange={(e) => updateTenant(tenant.id, { name: e.target.value })} /></Field>
+                    <Field label="เบอร์โทรศัพท์">
+                      <input
+                        inputMode="tel"
+                        value={tenant.phone || ""}
+                        onChange={(e) => updateTenant(tenant.id, { phone: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="LINE ID"><input value={tenant.lineId || ""} onChange={(e) => updateTenant(tenant.id, { lineId: e.target.value })} /></Field>
                     <Field label="เลขบัตรประชาชน">
                       <input
                         inputMode="numeric"
@@ -986,13 +1197,7 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                         onChange={(e) => updateTenant(tenant.id, { idCard: e.target.value.replace(/\D/g, "").slice(0, 13) })}
                       />
                     </Field>
-                    <Field label="เบอร์ติดต่อ">
-                      <input
-                        inputMode="tel"
-                        value={tenant.phone || ""}
-                        onChange={(e) => updateTenant(tenant.id, { phone: e.target.value })}
-                      />
-                    </Field>
+                    <Field label="วันที่เข้าอยู่"><input type="date" value={tenant.moveInDate || ""} onChange={(e) => updateTenant(tenant.id, { moveInDate: e.target.value })} /></Field>
                     <Field label="อาคาร / Tag">
                       <select value={tenant.building} onChange={(e) => updateTenant(tenant.id, { building: e.target.value })}>
                         {data.buildings.map((item) => <option key={item}>{item}</option>)}
@@ -1001,6 +1206,26 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                     <Field label="ค่าเช่าต่อเดือน">
                       <div className="input-suffix"><input type="number" min="0" value={tenant.rent} onChange={(e) => updateTenant(tenant.id, { rent: Number(e.target.value) })} /><span>บาท</span></div>
                     </Field>
+                    <Field label="เงินประกัน">
+                      <div className="input-suffix"><input type="number" min="0" value={tenant.deposit || 0} onChange={(e) => updateTenant(tenant.id, { deposit: Number(e.target.value) })} /><span>บาท</span></div>
+                    </Field>
+                  </div>
+                  <div className="tenant-files-panel">
+                    <div className="tenant-files-heading">
+                      <strong>เอกสารผู้พัก</strong>
+                      <span>รองรับรูปภาพและ PDF ข้อมูลจะบันทึกอัตโนมัติ</span>
+                    </div>
+                    <div className="tenant-file-grid">
+                      {TENANT_FILE_SLOTS.map((slot) => (
+                        <TenantFileField
+                          key={slot.key}
+                          label={slot.label}
+                          file={tenant.files?.[slot.key]}
+                          onUpload={(file) => handleTenantFile(tenant, slot.key, file)}
+                          onRemove={() => removeTenantFile(tenant, slot.key)}
+                        />
+                      ))}
+                    </div>
                   </div>
                   <div className="utility-settings">
                     <UtilitySetting label="ค่าน้ำ" utility="water" tenant={tenant} defaultRate={17} updateTenant={updateTenant} />
@@ -1014,9 +1239,9 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                     <div className="tenant-compact-room">{tenant.room || "ห้องใหม่"}</div>
                     <div className="tenant-compact-name">{tenant.name || "ยังไม่ระบุชื่อผู้พัก"}</div>
                     <div className="tenant-compact-contact">
-                      {tenant.phone ? `โทร ${tenant.phone}` : "ยังไม่ระบุเบอร์"} · {tenant.idCard ? `บัตร ${tenant.idCard}` : "ยังไม่ระบุเลขบัตร"}
+                      {tenant.phone ? `โทร ${tenant.phone}` : "ยังไม่ระบุเบอร์"} · {tenant.lineId ? `LINE ${tenant.lineId}` : "ยังไม่ระบุ LINE"}
                     </div>
-                    <div className="tenant-compact-rent">ค่าเช่า {money(tenant.rent)} บาท/เดือน</div>
+                    <div className="tenant-compact-rent">ค่าเช่า {money(tenant.rent)} บาท/เดือน · ประกัน {money(tenant.deposit)} บาท</div>
                   </div>
                   <div className="tenant-card-actions">
                     <button className="button secondary compact-action" onClick={() => setEditing(tenant.id, true)}><Edit3 size={16} /> Edit</button>
@@ -1032,6 +1257,31 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
         {tenants.length === 0 && <EmptyState text="ยังไม่มีผู้พักในอาคารนี้" />}
       </div>
     </section>
+  );
+}
+
+function TenantFileField({ label, file, onUpload, onRemove }) {
+  return (
+    <div className="tenant-file-card">
+      <div className="tenant-file-title">
+        <strong>{label}</strong>
+        {file && <span>{fileSizeLabel(file.size)}</span>}
+      </div>
+      <FilePreview file={file} emptyText="ยังไม่มีไฟล์" />
+      <div className="tenant-file-actions">
+        <label className="mini-upload-button">
+          <Paperclip size={15} />
+          <span>{file ? "เปลี่ยนไฟล์" : "อัปโหลด"}</span>
+          <input type="file" accept="image/*,application/pdf" onChange={(event) => onUpload(event.target.files?.[0])} />
+        </label>
+        <button className="button secondary" type="button" disabled={!file} onClick={() => printStoredFile(file)}>
+          <Printer size={15} /> พิมพ์
+        </button>
+        <button className="button secondary" type="button" disabled={!file} onClick={onRemove}>
+          <Trash2 size={15} /> ลบ
+        </button>
+      </div>
+    </div>
   );
 }
 
