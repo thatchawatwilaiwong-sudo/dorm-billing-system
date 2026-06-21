@@ -156,6 +156,13 @@ function printStoredFile(file) {
   popup.setTimeout(() => popup.print(), 500);
 }
 
+async function downloadStoredFile(file) {
+  if (!file?.dataUrl) return;
+  const response = await fetch(file.dataUrl);
+  const blob = await response.blob();
+  downloadBlob(blob, file.name || "document");
+}
+
 const STORAGE_KEY = "dorm-billing-data";
 const SUPABASE_TABLE = "dorm_app_state";
 const CLOUD_SAVE_DELAY_MS = 1000;
@@ -1067,7 +1074,7 @@ function DocumentLibraryPage({ documents, updateDocument }) {
       <div className="section-actions">
         <div>
           <h2>คลังเอกสารออนไลน์</h2>
-          <p>แปะไฟล์ภาพหรือ PDF แก้ชื่อ/หมายเหตุ แล้วเปิดพิมพ์จากหน้าเว็บได้ทันที</p>
+          <p>อัปโหลดเอกสารเก็บไว้ในระบบ ดาวน์โหลดกลับเป็นไฟล์รูปแบบเดิม หรือพิมพ์ไฟล์ภาพ/PDF ได้</p>
         </div>
       </div>
 
@@ -1088,8 +1095,8 @@ function DocumentLibraryPage({ documents, updateDocument }) {
             <FilePreview file={document.file} emptyText="ยังไม่ได้แปะไฟล์" />
             <label className="file-dropzone">
               <Paperclip size={18} />
-              <span>{document.file ? "เปลี่ยนไฟล์ภาพ/PDF" : "แปะไฟล์ภาพ/PDF"}</span>
-              <input type="file" accept="image/*,application/pdf" onChange={(event) => handleFile(document.id, event.target.files?.[0])} />
+              <span>{document.file ? "เปลี่ยนเอกสาร" : "อัปโหลดเอกสาร"}</span>
+              <input type="file" onChange={(event) => handleFile(document.id, event.target.files?.[0])} />
             </label>
             <textarea
               className="document-note"
@@ -1098,7 +1105,10 @@ function DocumentLibraryPage({ documents, updateDocument }) {
               onChange={(event) => updateDocument(document.id, { note: event.target.value })}
             />
             <div className="document-actions">
-              <button className="button secondary" disabled={!document.file} onClick={() => printStoredFile(document.file)}>
+              <button className="button secondary" disabled={!document.file} onClick={() => downloadStoredFile(document.file)}>
+                <Download size={16} /> ดาวน์โหลด
+              </button>
+              <button className="button secondary" disabled={!document.file || fileKind(document.file) === "file"} onClick={() => printStoredFile(document.file)}>
                 <Printer size={16} /> พิมพ์
               </button>
               <button className="button secondary" disabled={!document.file} onClick={() => updateDocument(document.id, { file: null })}>
