@@ -49,12 +49,18 @@ const METER_MAX = 9999;
 const METER_RANGE = METER_MAX + 1;
 const METER_ROLLOVER_START = 9000;
 const DOCUMENT_TEMPLATES = [
-  { id: "PNRD", code: "PNRD", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Residences", building: RESIDENCES_NAME },
-  { id: "PNRS", code: "PNRS", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Reserve", building: RESERVE_NAME },
-  { id: "PNFS", code: "PNFS", title: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Flowside", building: FLOWSIDE_NAME },
-  { id: "RF", code: "RF", title: "ไฟล์ใบจองเข้าอยู่", building: "ทุกอาคาร" },
-  { id: "RHF", code: "RHF", title: "ไฟล์ใบรับมอบห้องพัก", building: "ทุกอาคาร" },
+  { id: "PNRD", code: "PNRD", title: "ระเบียบการเข้าพักอาคาร Nuntika Residences", building: RESIDENCES_NAME },
+  { id: "PNRS", code: "PNRS", title: "ระเบียบการเข้าพักอาคาร Nuntika Reserve", building: RESERVE_NAME },
+  { id: "PNFS", code: "PNFS", title: "ระเบียบการเข้าพักอาคาร Nuntika Flowside", building: FLOWSIDE_NAME },
+  { id: "RF", code: "RF", title: "ใบจองห้องพัก", building: "ทุกอาคาร" },
+  { id: "RHF", code: "RHF", title: "ไฟล์ใบรับมอบห้องพัก", building: RESERVE_NAME },
 ];
+const LEGACY_DOCUMENT_TITLES = {
+  PNRD: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Residences",
+  PNRS: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Reserve",
+  PNFS: "ไฟล์กฎการพักอาศัยอาคาร Nuntika Flowside",
+  RF: "ไฟล์ใบจองเข้าอยู่",
+};
 const TENANT_FILE_SLOTS = [
   { key: "reservation", label: "เอกสารการจอง" },
   { key: "transfer", label: "เอกสารการโอนเงิน" },
@@ -202,14 +208,24 @@ function normalizeData(data) {
   const source = data || INITIAL_DATA;
   const buildings = [...new Set([...(source.buildings || INITIAL_DATA.buildings).map(normalizeBuildingName), ...INITIAL_DATA.buildings])];
   const documentsById = Object.fromEntries((source.documents || []).map((document) => [document.id, document]));
-  const documents = DOCUMENT_TEMPLATES.map((template) => ({
-    ...template,
-    ...(documentsById[template.id] || {}),
-    code: template.code,
-    building: documentsById[template.id]?.building || template.building,
-    note: documentsById[template.id]?.note || "",
-    file: documentsById[template.id]?.file || null,
-  }));
+  const documents = DOCUMENT_TEMPLATES.map((template) => {
+    const current = documentsById[template.id] || {};
+    const title = !current.title || current.title === LEGACY_DOCUMENT_TITLES[template.id]
+      ? template.title
+      : current.title;
+    const building = template.id === "RHF" && (!current.building || current.building === "ทุกอาคาร")
+      ? template.building
+      : (current.building || template.building);
+    return {
+      ...template,
+      ...current,
+      code: template.code,
+      title,
+      building,
+      note: current.note || "",
+      file: current.file || null,
+    };
+  });
   return {
     ...source,
     buildings,
