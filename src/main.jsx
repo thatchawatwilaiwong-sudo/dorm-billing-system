@@ -28,6 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "./supabaseClient";
+import embeddedLogoDataUrl from "./assets/nuntika-logo.jpeg?inline";
 import "./styles.css";
 
 const MONTHS = [
@@ -37,7 +38,7 @@ const MONTHS = [
 const MONTH_SHORTS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 const APP_PIN = "115974";
-const APP_LOGO_SRC = "./nuntika-logo.jpeg";
+const APP_LOGO_SRC = embeddedLogoDataUrl;
 const BRAND_NAME = "Baan Nuntika";
 const RESIDENCES_NAME = "Nuntika Residences";
 const OLD_RESIDENCES_NAME = "Baan Nuntika";
@@ -802,7 +803,7 @@ function AuthGate({ children }) {
 function AppLogo({ className = "" }) {
   return (
     <span className={`app-logo ${className}`} aria-label={RESIDENCES_NAME}>
-      <img src={APP_LOGO_SRC} alt={RESIDENCES_NAME} crossOrigin="anonymous" />
+      <img src={APP_LOGO_SRC} alt={RESIDENCES_NAME} />
     </span>
   );
 }
@@ -1523,7 +1524,7 @@ function BillCard({ data, tenant, year, month }) {
     >
       <div className="bill-document" data-bill-id={tenant.id}>
         <div className="bill-header">
-          <div className="bill-building-icon"><img src={APP_LOGO_SRC} alt="" crossOrigin="anonymous" /></div>
+          <div className="bill-building-icon"><img src={APP_LOGO_SRC} alt="" /></div>
           <div>
             <h3>บิลค่าเช่าห้อง {tenant.building}</h3>
             <span>{tenant.building}</span>
@@ -1598,20 +1599,8 @@ function billImageFilename(tenant, year, month) {
   return filename.replace(/[\\/:*?"<>|]/g, "-");
 }
 
-async function imageUrlToDataUrl(url) {
-  const response = await fetch(url, { cache: "force-cache" });
-  if (!response.ok) throw new Error(`โหลดโลโก้ไม่สำเร็จ (${response.status})`);
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(reader.result), { once: true });
-    reader.addEventListener("error", () => reject(reader.error), { once: true });
-    reader.readAsDataURL(blob);
-  });
-}
-
 function getLogoDataUrl() {
-  logoDataUrlPromise ||= imageUrlToDataUrl(APP_LOGO_SRC);
+  logoDataUrlPromise ||= Promise.resolve(APP_LOGO_SRC);
   return logoDataUrlPromise;
 }
 
