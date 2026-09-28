@@ -49,6 +49,15 @@ const START_YEAR = 2568;
 const METER_MAX = 9999;
 const METER_RANGE = METER_MAX + 1;
 const METER_ROLLOVER_START = 9000;
+// [NEW v.1] ค่าบริการไฟเริ่มต้น (บาท/หน่วย) ใช้กับห้องที่ยังไม่เคยตั้งค่า
+const DEFAULT_ELECTRIC_SERVICE_RATE = 2;
+// [NEW v.2] ค่าไฟเริ่มต้น (บาท/หน่วย)
+const DEFAULT_ELECTRIC_RATE = 5;
+// [NEW v.3] ค่าน้ำเริ่มต้น (บาท/หน่วย)
+const DEFAULT_WATER_RATE = 15;
+// ตัวบอกว่าเคยปรับอัตราเริ่มต้นให้ทุกห้องไปแล้ว (ปรับครั้งเดียว ครั้งต่อไปแก้รายห้องได้ตามปกติ)
+const MIGRATION_ELECTRIC_RATE_5 = "electricRateDefault5";
+const MIGRATION_WATER_RATE_15 = "waterRateDefault15";
 const DOCUMENT_TEMPLATES = [
   { id: "PNRD", code: "PNRD", title: "ระเบียบการเข้าพักอาคาร Nuntika Residences", building: RESIDENCES_NAME },
   { id: "PNRS", code: "PNRS", title: "ระเบียบการเข้าพักอาคาร Nuntika Reserve", building: RESERVE_NAME },
@@ -85,13 +94,15 @@ const INITIAL_DATA = {
       building: RESIDENCES_NAME,
       rent: 3000,
       waterMode: "unit",
-      waterRate: 17,
+      waterRate: DEFAULT_WATER_RATE,
       waterFixed: 0,
       electricMode: "unit",
-      electricRate: 7,
+      electricRate: DEFAULT_ELECTRIC_RATE,
       electricFixed: 0,
+      electricServiceRate: DEFAULT_ELECTRIC_SERVICE_RATE,
     },
   ],
+  migrations: { [MIGRATION_ELECTRIC_RATE_5]: true, [MIGRATION_WATER_RATE_15]: true },
   meters: {
     "room-202": {
       water: { "2568-11": 170, "2569-0": 170, "2569-4": 170, "2569-5": 178 },
@@ -234,10 +245,18 @@ function normalizeData(data) {
       file: current.file || null,
     };
   });
+  // [NEW v.2/v.3] ปรับค่าไฟเป็น 5 บาท และค่าน้ำเป็น 15 บาท ให้ทุกห้อง เพียงครั้งเดียว
+  const needsElectricRateUpdate = !source.migrations?.[MIGRATION_ELECTRIC_RATE_5];
+  const needsWaterRateUpdate = !source.migrations?.[MIGRATION_WATER_RATE_15];
   return {
     ...source,
     buildings,
     documents,
+    migrations: {
+      ...(source.migrations || {}),
+      [MIGRATION_ELECTRIC_RATE_5]: true,
+      [MIGRATION_WATER_RATE_15]: true,
+    },
     tenants: (source.tenants || []).map((tenant) => ({
       ...tenant,
       idCard: tenant.idCard || "",
@@ -247,6 +266,10 @@ function normalizeData(data) {
       moveInDate: tenant.moveInDate || "",
       files: tenant.files || {},
       building: normalizeBuildingName(tenant.building),
+      // [NEW v.1] ห้องเก่าที่ยังไม่มีค่านี้ จะได้ค่าเริ่มต้น 2 บาท/หน่วย
+      electricServiceRate: tenant.electricServiceRate ?? DEFAULT_ELECTRIC_SERVICE_RATE,
+      electricRate: needsElectricRateUpdate ? DEFAULT_ELECTRIC_RATE : (tenant.electricRate ?? DEFAULT_ELECTRIC_RATE),
+      waterRate: needsWaterRateUpdate ? DEFAULT_WATER_RATE : (tenant.waterRate ?? DEFAULT_WATER_RATE),
     })),
     meters: source.meters || {},
   };
@@ -457,16 +480,35 @@ function utilityCost(data, tenant, utility, year, month) {
   };
 }
 
+// [NEW v.1] ค่าบริการไฟ = จำนวนหน่วยไฟที่ใช้ × อัตราค่าบริการไฟของห้อง
+// ถ้าห้องนั้นคิดค่าไฟแบบเหมาจ่าย จะไม่มีค่าบริการไฟ (ไม่มีจำนวนหน่วยให้คำนวณ)
+function electricServiceCost(data, tenant, year, month) {
+  const electric = utilityCost(data, tenant, "electric", year, month);
+  const rate = Number(tenant.electricServiceRate ?? DEFAULT_ELECTRIC_SERVICE_RATE) || 0;
+  if (electric.fixed) {
+    return { units: null, rate, total: 0, applicable: false };
+  }
+  return {
+    units: electric.units,
+    rate,
+    total: electric.units === null ? 0 : electric.units * rate,
+    applicable: true,
+  };
+}
+
 function monthlyRoomRevenue(data, tenant, year, month) {
   const water = utilityCost(data, tenant, "water", year, month);
   const electric = utilityCost(data, tenant, "electric", year, month);
+  // [NEW v.1] รวมค่าบริการไฟเข้าไปในรายได้ค่าไฟของ Dashboard ให้ตรงกับยอดบิล
+  const electricService = electricServiceCost(data, tenant, year, month);
+  const electricTotal = electric.total + electricService.total;
   const rent = Number(tenant.rent || 0);
   return {
     tenant,
     rent,
     water: water.total,
-    electric: electric.total,
-    total: rent + water.total + electric.total,
+    electric: electricTotal,
+    total: rent + water.total + electricTotal,
     hasWaterData: water.fixed || water.units !== null,
     hasElectricData: electric.fixed || electric.units !== null,
   };
@@ -590,6 +632,15 @@ function App() {
     }));
   };
 
+  // [NEW v.3] อัปเดตหลายห้องพร้อมกัน (ใช้กับปุ่ม Apply)
+  const updateTenants = (ids, patch) => {
+    const idSet = new Set(ids);
+    setData((current) => ({
+      ...current,
+      tenants: current.tenants.map((tenant) => idSet.has(tenant.id) ? { ...tenant, ...patch } : tenant),
+    }));
+  };
+
   const deleteTenant = (id) => {
     if (!window.confirm("ลบข้อมูลห้องนี้ใช่หรือไม่?")) return;
     setData((current) => ({
@@ -619,11 +670,12 @@ function App() {
           building: firstBuilding,
           rent: 0,
           waterMode: "unit",
-          waterRate: 17,
+          waterRate: DEFAULT_WATER_RATE,
           waterFixed: 0,
           electricMode: "unit",
-          electricRate: 7,
+          electricRate: DEFAULT_ELECTRIC_RATE,
           electricFixed: 0,
+          electricServiceRate: DEFAULT_ELECTRIC_SERVICE_RATE,
         },
       ],
       meters: { ...current.meters, [id]: { water: {}, electric: {} } },
@@ -725,6 +777,7 @@ function App() {
             addTenant={addTenant}
             addBuilding={addBuilding}
             updateTenant={updateTenant}
+            updateTenants={updateTenants}
             deleteTenant={deleteTenant}
           />
         )}
@@ -1146,8 +1199,18 @@ function FilePreview({ file, emptyText = "ยังไม่มีไฟล์" 
   );
 }
 
-function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, deleteTenant }) {
+function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, updateTenants, deleteTenant }) {
   const [editingIds, setEditingIds] = useState(() => new Set());
+  // [NEW v.3] ห้องที่ติ๊กเลือกไว้สำหรับ Apply อัตราค่าน้ำ/ค่าไฟ
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const toggleSelected = (id) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const setEditing = (id, editing) => {
     setEditingIds((current) => {
       const next = new Set(current);
@@ -1188,12 +1251,30 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
         </div>
       </div>
 
+      {/* [NEW v.3] แผงตั้งค่าค่าน้ำ/ค่าไฟ แล้ว Apply กับห้องที่เลือก */}
+      <BulkRatePanel
+        tenants={tenants}
+        selectedIds={selectedIds}
+        setSelectedIds={setSelectedIds}
+        updateTenants={updateTenants}
+      />
+
       <div className="tenant-list">
         {tenants.map((tenant) => {
           const editing = editingIds.has(tenant.id);
           const accent = buildingColor(data.buildings, tenant.building);
+          const selected = selectedIds.has(tenant.id);
           return (
-            <article className={`tenant-card ${editing ? "editing" : "compact"}`} style={{ "--building-accent": accent }} key={tenant.id}>
+            <article
+              className={`tenant-card ${editing ? "editing" : "compact"}`}
+              style={{ "--building-accent": accent, ...(selected ? { outline: "2px solid #0891b2", outlineOffset: 2 } : {}) }}
+              key={tenant.id}
+            >
+              {/* [NEW v.3] ช่องติ๊กเลือกห้อง */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", marginBottom: 6 }}>
+                <input type="checkbox" checked={selected} onChange={() => toggleSelected(tenant.id)} />
+                เลือกห้องนี้
+              </label>
               {editing ? (
                 <>
                   <div className="tenant-heading">
@@ -1255,8 +1336,10 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                     </div>
                   </div>
                   <div className="utility-settings">
-                    <UtilitySetting label="ค่าน้ำ" utility="water" tenant={tenant} defaultRate={17} updateTenant={updateTenant} />
-                    <UtilitySetting label="ค่าไฟ" utility="electric" tenant={tenant} defaultRate={7} updateTenant={updateTenant} />
+                    <UtilitySetting label="ค่าน้ำ" utility="water" tenant={tenant} defaultRate={DEFAULT_WATER_RATE} updateTenant={updateTenant} />
+                    <UtilitySetting label="ค่าไฟ" utility="electric" tenant={tenant} defaultRate={DEFAULT_ELECTRIC_RATE} updateTenant={updateTenant} />
+                    {/* [NEW v.1] ช่องตั้งค่าค่าบริการไฟ */}
+                    <ElectricServiceSetting tenant={tenant} updateTenant={updateTenant} />
                   </div>
                 </>
               ) : (
@@ -1269,6 +1352,12 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
                       {tenant.phone ? `โทร ${tenant.phone}` : "ยังไม่ระบุเบอร์"} · {tenant.lineId ? `LINE ${tenant.lineId}` : "ยังไม่ระบุ LINE"}
                     </div>
                     <div className="tenant-compact-rent">ค่าเช่า {money(tenant.rent)} บาท/เดือน · ประกัน {money(tenant.deposit)} บาท</div>
+                    {/* [NEW v.3] แสดงอัตราค่าน้ำ/ค่าไฟปัจจุบัน ให้เช็กได้ว่า Apply แล้ว */}
+                    <div className="tenant-compact-rent">
+                      น้ำ {tenant.waterMode === "fixed" ? `เหมาจ่าย ${money(tenant.waterFixed)} บาท` : `${money(tenant.waterRate)} บาท/หน่วย`}
+                      {" · "}
+                      ไฟ {tenant.electricMode === "fixed" ? `เหมาจ่าย ${money(tenant.electricFixed)} บาท` : `${money(tenant.electricRate)} บาท/หน่วย`}
+                    </div>
                   </div>
                   <div className="tenant-card-actions">
                     <button className="button secondary compact-action" onClick={() => setEditing(tenant.id, true)}><Edit3 size={16} /> Edit</button>
@@ -1284,6 +1373,94 @@ function TenantPage({ data, tenants, addTenant, addBuilding, updateTenant, delet
         {tenants.length === 0 && <EmptyState text="ยังไม่มีผู้พักในอาคารนี้" />}
       </div>
     </section>
+  );
+}
+
+// [NEW v.3] แผงกรอกค่าน้ำ/ค่าไฟ แล้วกด Apply กับทุกห้องที่เลือก (ตั้งเป็น "คิดตามหน่วย")
+function BulkRatePanel({ tenants, selectedIds, setSelectedIds, updateTenants }) {
+  const [waterRate, setWaterRate] = useState(String(DEFAULT_WATER_RATE));
+  const [electricRate, setElectricRate] = useState(String(DEFAULT_ELECTRIC_RATE));
+  const visibleIds = tenants.map((tenant) => tenant.id);
+  const selectedVisibleIds = visibleIds.filter((id) => selectedIds.has(id));
+  const allSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length;
+
+  const toggleAll = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const parseRate = (value) => {
+    if (String(value).trim() === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : NaN;
+  };
+
+  const applyRates = () => {
+    const water = parseRate(waterRate);
+    const electric = parseRate(electricRate);
+    if (Number.isNaN(water) || Number.isNaN(electric)) {
+      window.alert("กรุณากรอกตัวเลขที่ถูกต้อง (0 ขึ้นไป)");
+      return;
+    }
+    if (water === null && electric === null) {
+      window.alert("กรุณากรอกค่าน้ำหรือค่าไฟอย่างน้อย 1 ช่อง");
+      return;
+    }
+    if (selectedVisibleIds.length === 0) {
+      window.alert("กรุณาติ๊กเลือกห้องที่ต้องการก่อน");
+      return;
+    }
+    const patch = {};
+    const summary = [];
+    if (water !== null) {
+      patch.waterMode = "unit";
+      patch.waterRate = water;
+      summary.push(`ค่าน้ำ ${money(water)} บาท/หน่วย`);
+    }
+    if (electric !== null) {
+      patch.electricMode = "unit";
+      patch.electricRate = electric;
+      summary.push(`ค่าไฟ ${money(electric)} บาท/หน่วย`);
+    }
+    const confirmed = window.confirm(
+      `ปรับเป็น "คิดตามหน่วย"\n${summary.join("\n")}\n\nกับ ${selectedVisibleIds.length} ห้องที่เลือก ใช่หรือไม่?\n(บิลเดือนเก่าของห้องเหล่านี้จะคำนวณด้วยอัตราใหม่ด้วย)`,
+    );
+    if (!confirmed) return;
+    updateTenants(selectedVisibleIds, patch);
+    setSelectedIds(new Set());
+  };
+
+  return (
+    <div className="utility-box" style={{ marginBottom: 16 }}>
+      <div className="utility-title">ตั้งค่าค่าน้ำ / ค่าไฟ หลายห้องพร้อมกัน (คิดตามหน่วย)</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+        <Field label="ค่าน้ำ (บาท/หน่วย)">
+          <div className="input-suffix">
+            <input type="number" min="0" step="0.01" value={waterRate} onChange={(e) => setWaterRate(e.target.value)} />
+            <span>บาท</span>
+          </div>
+        </Field>
+        <Field label="ค่าไฟ (บาท/หน่วย)">
+          <div className="input-suffix">
+            <input type="number" min="0" step="0.01" value={electricRate} onChange={(e) => setElectricRate(e.target.value)} />
+            <span>บาท</span>
+          </div>
+        </Field>
+        <button className="button secondary" type="button" onClick={toggleAll} disabled={visibleIds.length === 0}>
+          {allSelected ? "ยกเลิกเลือกทั้งหมด" : "เลือกทุกห้อง"}
+        </button>
+        <button className="button primary" type="button" onClick={applyRates}>
+          <Check size={17} /> Apply กับห้องที่เลือก ({selectedVisibleIds.length})
+        </button>
+      </div>
+      <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
+        ติ๊ก "เลือกห้องนี้" ที่การ์ดห้อง หรือกด "เลือกทุกห้อง" (ตามอาคารที่เลือกด้านบน) · เว้นช่องว่างไว้ถ้าไม่ต้องการเปลี่ยนรายการนั้น
+      </small>
+    </div>
   );
 }
 
@@ -1342,6 +1519,33 @@ function UtilitySetting({ label, utility, tenant, updateTenant }) {
   );
 }
 
+// [NEW v.1] กล่องตั้งค่า "ค่าบริการไฟ" (บาท/หน่วย) ในหน้าผู้พักและห้องพัก
+function ElectricServiceSetting({ tenant, updateTenant }) {
+  const isFixed = tenant.electricMode === "fixed";
+  return (
+    <div className="utility-box">
+      <div className="utility-title">ค่าบริการไฟ</div>
+      <Field label="ราคาต่อหน่วย (ใช้จำนวนหน่วยเดียวกับค่าไฟ)">
+        <div className="input-suffix">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={tenant.electricServiceRate ?? DEFAULT_ELECTRIC_SERVICE_RATE}
+            onChange={(e) => updateTenant(tenant.id, { electricServiceRate: Number(e.target.value) })}
+          />
+          <span>บาท</span>
+        </div>
+      </Field>
+      {isFixed && (
+        <small style={{ display: "block", marginTop: 6, opacity: 0.7 }}>
+          ห้องนี้คิดค่าไฟแบบเหมาจ่าย จึงไม่คิดค่าบริการไฟ
+        </small>
+      )}
+    </div>
+  );
+}
+
 function PeriodControls({ year, month, setYear, setMonth }) {
   const currentThaiYear = new Date().getFullYear() + 543;
   const years = Array.from({ length: Math.max(4, currentThaiYear - START_YEAR + 3) }, (_, index) => START_YEAR + index);
@@ -1376,7 +1580,13 @@ function MeterPage({ data, tenants, year, month, setYear, setMonth, updateMeter 
           <h2>บันทึกเลขมิเตอร์</h2>
           <p>แก้ไขได้เฉพาะเดือนที่เลือก รองรับเลขมิเตอร์วนจาก 9999 กลับไป 0000</p>
         </div>
-        <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
+        <div className="bill-toolbar">
+          <PeriodControls year={year} month={month} setYear={setYear} setMonth={setMonth} />
+          {/* [NEW v.2] ปุ่ม Export Excel สำหรับ backup */}
+          <button className="button secondary" onClick={() => exportBackupExcel(data, year)}>
+            <Download size={17} /> Export Excel (Backup)
+          </button>
+        </div>
       </div>
       <MeterTable data={data} tenants={tenants} year={year} selectedMonth={month} updateMeter={updateMeter} />
       <div className="summary-title">
@@ -1509,7 +1719,9 @@ function BillsPage({ data, tenants, year, month, setYear, setMonth }) {
 function BillCard({ data, tenant, year, month }) {
   const water = utilityCost(data, tenant, "water", year, month);
   const electric = utilityCost(data, tenant, "electric", year, month);
-  const total = water.total + electric.total + Number(tenant.rent || 0);
+  // [NEW v.1] คำนวณค่าบริการไฟ และรวมเข้ายอดบิล
+  const electricService = electricServiceCost(data, tenant, year, month);
+  const total = water.total + electric.total + electricService.total + Number(tenant.rent || 0);
   const theme = buildingTheme(data.buildings, tenant.building);
   return (
     <article
@@ -1547,6 +1759,8 @@ function BillCard({ data, tenant, year, month }) {
             <tbody>
               <BillRow label="น้ำ" result={water} icon="water" />
               <BillRow label="ไฟ" result={electric} icon="electric" />
+              {/* [NEW v.1] บรรทัดย่อย ค่าบริการไฟ ใต้บรรทัดไฟ */}
+              {electricService.applicable && <BillServiceRow label="ค่าบริการไฟ" result={electricService} />}
               <tr className="rent-row">
                 <td><span className="bill-item"><span className="bill-item-icon rent"><House size={16} /></span>ค่าเช่า</span></td>
                 <td></td><td></td><td></td><td></td><td>{money(tenant.rent)}</td>
@@ -1579,6 +1793,24 @@ function BillRow({ label, result, icon }) {
       ) : (
         <><td>{result.previous ?? "—"}</td><td>{result.current ?? "—"}</td><td>{result.units ?? "—"}</td><td>{money(result.rate)}</td><td>{result.units === null ? "—" : money(result.total)}</td></>
       )}
+    </tr>
+  );
+}
+
+// [NEW v.1] บรรทัดย่อยในบิล (เยื้องเข้าไป ตัวเล็กกว่าเล็กน้อย) ใช้ inline style เพื่อให้ติดไปกับรูป PNG ด้วย
+function BillServiceRow({ label, result }) {
+  return (
+    <tr className="bill-subrow">
+      <td>
+        <span className="bill-item" style={{ paddingLeft: 28, fontSize: "0.92em" }}>
+          └ {label}
+        </span>
+      </td>
+      <td></td>
+      <td></td>
+      <td>{result.units ?? "—"}</td>
+      <td>{money(result.rate)}</td>
+      <td>{result.units === null ? "—" : money(result.total)}</td>
     </tr>
   );
 }
@@ -1708,6 +1940,248 @@ async function saveAllBillImages(tenants, year, month) {
   }
   images.forEach((image, index) => downloadBlob(image.blob, image.filename, index * 180));
 }
+
+// ===================== [NEW v.2] Export Excel (Backup) =====================
+// สร้างไฟล์ .xlsx เองโดยไม่ต้องติดตั้ง library เพิ่ม (ไม่ต้องแก้ package.json)
+
+const XLSX_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function xlsxCrc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i += 1) crc = XLSX_CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZipBlob(files, mimeType) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  files.forEach((file) => {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = encoder.encode(file.content);
+    const crc = xlsxCrc32(dataBytes);
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 33, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, dataBytes.length, true);
+    lv.setUint32(22, dataBytes.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    localParts.push(local, dataBytes);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 33, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, dataBytes.length, true);
+    cv.setUint32(24, dataBytes.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length + dataBytes.length;
+  });
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  return new Blob([...localParts, ...centralParts, end], { type: mimeType });
+}
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function xlsxColumnName(index) {
+  let name = "";
+  let n = index + 1;
+  while (n > 0) {
+    const remainder = (n - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function xlsxSheetXml(rows) {
+  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  const cols = Array.from({ length: columnCount }, (_, index) => `<col min="${index + 1}" max="${index + 1}" width="18" customWidth="1"/>`).join("");
+  const rowXml = rows.map((row, rowIndex) => {
+    const cells = row.map((value, colIndex) => {
+      if (value === null || value === undefined || value === "") return "";
+      const ref = `${xlsxColumnName(colIndex)}${rowIndex + 1}`;
+      const style = rowIndex === 0 ? ' s="1"' : "";
+      if (typeof value === "number" && Number.isFinite(value)) return `<c r="${ref}"${style}><v>${value}</v></c>`;
+      return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
+    }).join("");
+    return `<row r="${rowIndex + 1}">${cells}</row>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+    + `<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
+    + `<cols>${cols}</cols><sheetData>${rowXml}</sheetData></worksheet>`;
+}
+
+function createXlsxBlob(sheets) {
+  const sheetEntries = sheets.map((sheet, index) => ({
+    name: `xl/worksheets/sheet${index + 1}.xml`,
+    content: xlsxSheetXml(sheet.rows),
+  }));
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+    + `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`
+    + `<Default Extension="xml" ContentType="application/xml"/>`
+    + `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>`
+    + `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`
+    + sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")
+    + `</Types>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>`
+    + `</Relationships>`;
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>`
+    + sheets.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name.replace(/[\\/?*[\]:]/g, "-").slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")
+    + `</sheets></workbook>`;
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("")
+    + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
+    + `</Relationships>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`
+    + `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+    + `<fonts count="2"><font><sz val="11"/><name val="Tahoma"/></font><font><b/><sz val="11"/><name val="Tahoma"/></font></fonts>`
+    + `<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>`
+    + `<fill><patternFill patternType="solid"><fgColor rgb="FFE8E1D5"/><bgColor indexed="64"/></patternFill></fill></fills>`
+    + `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>`
+    + `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>`
+    + `<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>`
+    + `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>`
+    + `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>`
+    + `</styleSheet>`;
+  return createZipBlob([
+    { name: "[Content_Types].xml", content: contentTypes },
+    { name: "_rels/.rels", content: rootRels },
+    { name: "xl/workbook.xml", content: workbook },
+    { name: "xl/_rels/workbook.xml.rels", content: workbookRels },
+    { name: "xl/styles.xml", content: styles },
+    ...sheetEntries,
+  ], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
+function buildBackupSheets(data, year) {
+  const tenants = data.tenants || [];
+  const modeLabel = (mode) => (mode === "fixed" ? "เหมาจ่าย" : "คิดตามหน่วย");
+
+  // Sheet 1: ข้อมูลผู้พักและห้อง (ทุกอาคาร)
+  const tenantRows = [[
+    "รหัสห้อง (id)", "อาคาร", "เลขห้อง", "ชื่อผู้พัก", "เบอร์โทร", "LINE ID", "เลขบัตรประชาชน", "วันที่เข้าอยู่",
+    "ค่าเช่า/เดือน", "เงินประกัน", "ค่าน้ำ: วิธีคิด", "ค่าน้ำ: บาท/หน่วย", "ค่าน้ำ: เหมาจ่าย",
+    "ค่าไฟ: วิธีคิด", "ค่าไฟ: บาท/หน่วย", "ค่าไฟ: เหมาจ่าย", "ค่าบริการไฟ: บาท/หน่วย",
+  ]];
+  tenants.forEach((tenant) => {
+    tenantRows.push([
+      tenant.id, tenant.building, tenant.room, tenant.name, tenant.phone, tenant.lineId, tenant.idCard, tenant.moveInDate,
+      Number(tenant.rent) || 0, Number(tenant.deposit) || 0,
+      modeLabel(tenant.waterMode), Number(tenant.waterRate) || 0, Number(tenant.waterFixed) || 0,
+      modeLabel(tenant.electricMode), Number(tenant.electricRate) || 0, Number(tenant.electricFixed) || 0,
+      Number(tenant.electricServiceRate ?? DEFAULT_ELECTRIC_SERVICE_RATE) || 0,
+    ]);
+  });
+
+  // Sheet 2: เลขมิเตอร์ทั้งหมดทุกเดือนทุกปี
+  const meterRows = [["รหัสห้อง (id)", "อาคาร", "เลขห้อง", "ประเภท", "ปี พ.ศ.", "เดือนที่", "เดือน", "เลขมิเตอร์"]];
+  tenants.forEach((tenant) => {
+    ["water", "electric"].forEach((utility) => {
+      const readings = data.meters?.[tenant.id]?.[utility] || {};
+      Object.entries(readings)
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+        .map(([key, value]) => {
+          const [readingYear, readingMonth] = key.split("-").map(Number);
+          return { readingYear, readingMonth, value: Number(value) };
+        })
+        .sort((a, b) => periodIndex(a.readingYear, a.readingMonth) - periodIndex(b.readingYear, b.readingMonth))
+        .forEach(({ readingYear, readingMonth, value }) => {
+          meterRows.push([
+            tenant.id, tenant.building, tenant.room, utility === "water" ? "น้ำ" : "ไฟ",
+            readingYear, readingMonth + 1, MONTHS[readingMonth] || "", value,
+          ]);
+        });
+    });
+  });
+
+  // Sheet 3: ค่าใช้จ่ายรายห้องรายเดือนของปีที่เลือก
+  const costRows = [[
+    "อาคาร", "เลขห้อง", "ชื่อผู้พัก", "เดือน", "ค่าเช่า",
+    "หน่วยน้ำ", "ค่าน้ำ", "หน่วยไฟ", "ค่าไฟ", "ค่าบริการไฟ", "รวม",
+  ]];
+  tenants.forEach((tenant) => {
+    MONTHS.forEach((monthName, monthIndex) => {
+      const water = utilityCost(data, tenant, "water", year, monthIndex);
+      const electric = utilityCost(data, tenant, "electric", year, monthIndex);
+      const service = electricServiceCost(data, tenant, year, monthIndex);
+      const rent = Number(tenant.rent) || 0;
+      costRows.push([
+        tenant.building, tenant.room, tenant.name, `${monthName} ${year}`, rent,
+        water.fixed ? "เหมาจ่าย" : water.units, water.total,
+        electric.fixed ? "เหมาจ่าย" : electric.units, electric.total, service.total,
+        rent + water.total + electric.total + service.total,
+      ]);
+    });
+  });
+
+  return [
+    { name: "ผู้พักและห้อง", rows: tenantRows },
+    { name: "เลขมิเตอร์ทั้งหมด", rows: meterRows },
+    { name: `ค่าใช้จ่าย ${year}`, rows: costRows },
+  ];
+}
+
+function exportBackupExcel(data, year) {
+  try {
+    const blob = createXlsxBlob(buildBackupSheets(data, year));
+    const now = new Date();
+    const stamp = `${now.getFullYear() + 543}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    downloadBlob(blob, `backup-${BRAND_NAME.replace(/\s+/g, "-")}-${stamp}.xlsx`);
+  } catch (error) {
+    console.error("Export Excel failed", error);
+    window.alert("Export Excel ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+}
+// =================== [END NEW v.2] Export Excel (Backup) ===================
 
 function EmptyState({ text }) {
   return <div className="empty-state"><Building2 size={28} /><p>{text}</p></div>;
